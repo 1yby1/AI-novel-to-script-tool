@@ -72,4 +72,15 @@ describe("parseNovel", () => {
     expect(r.checks.detected_chapter_count).toBe(2);
     expect(r.checks.meets_minimum_chapters).toBe(false);
   });
+
+  it("preserves content before the first chapter heading as a leading 前言 chapter", () => {
+    const r = parseNovel("楔子：很久以前的一个夜晚。\n\n第一章\n\nA\n\n第二章\n\nB\n\n第三章\n\nC");
+    // detected markers unchanged -> still meets the 3-chapter minimum
+    expect(r.checks.detected_chapter_count).toBe(3);
+    expect(r.checks.meets_minimum_chapters).toBe(true);
+    // preface preserved (no content lost), as a leading chapter titled 前言
+    expect(r.chapters[0]!.title).toBe("前言");
+    const prefaceParas = r.source_paragraphs.filter((p) => p.chapter_id === "ch1");
+    expect(prefaceParas[0]!.text).toContain("楔子");
+  });
 });

@@ -73,10 +73,15 @@ export function parseNovel(rawText: string): ParseResult {
   if (detectedChapterCount === 0) {
     rawChapters = emptyInput ? [] : [{ title: "未命名章节", body: text }];
   } else {
-    rawChapters = headings.map((h, idx) => {
+    rawChapters = [];
+    // Preserve any non-empty content before the first heading as a leading chapter
+    // (no source text is silently dropped). It does not count toward detected_chapter_count.
+    const prefaceBody = lines.slice(0, headings[0]!.lineIndex).join("\n").trim();
+    if (prefaceBody.length > 0) rawChapters.push({ title: "前言", body: prefaceBody });
+    headings.forEach((h, idx) => {
       const start = h.lineIndex + 1;
       const end = idx + 1 < headings.length ? headings[idx + 1]!.lineIndex : lines.length;
-      return { title: h.title, body: lines.slice(start, end).join("\n").trim() };
+      rawChapters.push({ title: h.title, body: lines.slice(start, end).join("\n").trim() });
     });
   }
 

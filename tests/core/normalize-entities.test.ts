@@ -30,4 +30,34 @@ describe("normalizeEntities", () => {
     expect(r.nameToId["林深"]).toBe(id);
     expect(r.nameToId["老林"]).toBe(id);
   });
+
+  it("does NOT merge distinct entities that merely share a non-name alias", () => {
+    const r = normalizeEntities("char", [
+      { name: "张三", aliases: ["老大"] },
+      { name: "李四", aliases: ["老大"] },
+    ]);
+    expect(r.entities).toHaveLength(2);
+  });
+
+  it("keeps nameToId consistent for a shared alias (first owner wins, no overwrite)", () => {
+    const r = normalizeEntities("char", [
+      { name: "A", aliases: ["x"] },
+      { name: "B", aliases: ["y"] },
+      { name: "C", aliases: ["x", "y"] },
+    ]);
+    expect(r.entities).toHaveLength(3);
+    expect(r.nameToId["x"]).toBe(r.entities.find((e) => e.name === "A")!.id);
+    expect(r.nameToId["y"]).toBe(r.entities.find((e) => e.name === "B")!.id);
+  });
+
+  it("keeps earlier attribute values on conflict (earlier wins, later fills gaps)", () => {
+    const r = normalizeEntities("char", [
+      { name: "林深", motivation: "复仇", background: "渔民出身" },
+      { name: "林深", motivation: "守护", weapon: "鱼叉" },
+    ]);
+    expect(r.entities).toHaveLength(1);
+    expect(r.entities[0]!.motivation).toBe("复仇");
+    expect(r.entities[0]!.background).toBe("渔民出身");
+    expect(r.entities[0]!.weapon).toBe("鱼叉");
+  });
 });

@@ -1,10 +1,10 @@
 # Novel2Script 设计文档（Design Spec）
 
 > 笔试题目三：AI 小说转剧本工具
-> 状态：已通过 brainstorming 对齐；已吸收外部评审，迭代至 **v1.1**；待用户复核
+> 状态：已通过 brainstorming 对齐；已吸收两轮外部评审，迭代至 **v1.2**；待用户复核
 > 日期：2026-06-05
 > 关联：根方案见 [PROJECT_PLAN_FOR_AI.md](../../../PROJECT_PLAN_FOR_AI.md)；Schema 设计原因详见 `docs/script-yaml-schema.md`（实现阶段产出）
-> 变更记录：v1.1 吸收外部评审 7 条（详见 §21），核心为「校验锚定 canonical 源、quality_report 重算、实体 ID 确定性化、宽严策略统一、溯源最低门槛、fixture 范围澄清、合规计划」。
+> 变更记录：v1.1 吸收第一轮评审 7 条；v1.2 吸收第二轮评审 5 条（详见 §21），核心为「Demo 视频回到交付物+验收+P1、live LLM 调用可靠性与降级、beats 严格例外（反转 v1.1）、fixture 非 Demo 输入 UI 硬闸门、空/0 章边界」。
 
 ---
 
@@ -28,6 +28,7 @@
 | D4 | 原创三章 Demo 小说 + 已校验 fixtures（兼测试数据，规避版权） | 评委一键体验 |
 | D5 | 确定性内核单元测试 + fixture 全链路集成测试 | 工程可信度 |
 | D6 | README、`.env.example` | 可复现、不泄密 |
+| D7 | Demo 视频（≤3 分钟，fixture 模式录全链路） | 根方案硬性提交物：演示 输入→生成→溯源→编辑→校验→导出 |
 
 ---
 
@@ -139,7 +140,7 @@ aitransfer/
 - `action`：`description`(string)
 - `transition`：`transition_kind`(`CUT_TO`\|`FADE_OUT`\|`FADE_IN`\|`DISSOLVE_TO`\|`SMASH_CUT`)
 
-校验时按 `type` 做判别联合（discriminated union）。**严格项**（硬错误）：`type` 必须为合法判别值；该 type 的**必填**专有字段必须存在且类型正确。**宽松项**：不属于该 type 的多余/未知字段一律**告警而非硬失败**，且校验路径**不静默丢弃**（统一规则见 §10），避免在编辑中悄悄吃掉作者内容。
+校验时按 `type` 做判别联合（discriminated union）。**beats 是全局宽松策略中的唯一严格例外**（硬错误）：`type` 必须为合法判别值；该 type 的**必填**专有字段必须存在且类型正确；出现**不属于该 type 的字段**（"多字段"=属于其它 type 变体的专有键，或任何未知键）一律 `SCHEMA_ERROR` 并给路径。理由：beat 是结构核心，判别单元上的越界字段几乎总是"`type` 设错或残留旧字段"的信号，硬报错比静默告警更助于作者修正（与容器对象的宽松策略对比见 §10）。
 
 ### 5.11 `adaptation_notes`（改编透明度）
 `type`(`cut`\|`merge`\|`reorder`\|`original_addition`\|`pacing`) · `description`(string) · `source_refs`(string[]，可选)
@@ -204,6 +205,10 @@ LLM 在 analyze 阶段只产出实体的**名称/别名/属性**（不负责定 
 
 **章节数不足处理**（验收 1）：识别到 <3 章时，**不静默报错**，而是回显"已识别章节列表 + 数量"，提示作者确认或补充章节标记，并阻止进入生成。
 
+**空输入 / 0 章边界**（补全边界）：
+- **空或纯空白输入** → `checks.empty_input=true`，UI 引导"请粘贴或上传小说文本"，不误报为解析失败。
+- **非空但 0 个章节标题命中**（无编号散文 / 楔子体） → fallback 为单章 `ch1` 解析（**段落不丢失**，照常生成稳定段落 ID），同时 `meets_minimum_chapters:false` 仍拦截生成，并提示"未检测到章节标题，已按单章解析；本工具需 ≥3 章，请用'第X章'等标记分章"。
+
 ---
 
 ## 8. 改编 Profile 与约束
@@ -233,12 +238,18 @@ LLM 在 analyze 阶段只产出实体的**名称/别名/属性**（不负责定 
 
 **反幻觉约束**：每个需要引用的阶段，Prompt 中注入**合法段落 ID + 实体 ID 清单**并强制"只能引用清单内 ID"；模型用结构化输出（JSON）返回。
 
+**LLM 调用可靠性与降级（live 路径——让"总能产出"覆盖模型偏差，而非仅 source_ref）**：
+1. **强制结构化输出**：每阶段优先 `response_format: json_schema`（带该阶段 schema）；不支持的兼容端点降级 `json_object`，并对返回做 markdown 围栏剥离 + 抽取首个平衡 JSON。
+2. **校验回灌重试**：JSON 解析失败或 Zod 校验失败（缺必填 / 错枚举 / beats 联合损坏）时，将错误摘要回灌模型，重试 1–2 次。
+3. **确定性兜底**：仍失败则由内核兜底——丢弃或占位坏 beat / 字段、记入 `quality_report.manual_review_suggestions`，保证整体 **schema-valid**（绝不把校验失败的原始模型输出当生成结果抛给用户）。
+4. **超时与最终降级**：每次调用设 timeout；超时 / 限流 / 截断且重试耗尽后，降级到 fixture（仅内置 Demo）或可编辑骨架，并在 UI 明确标注"AI 调用未完成，已降级"。
+
 ---
 
 ## 10. 校验策略与错误模型
 
 **两条路径，区别对待非法 `source_ref`（用户拍板）**：
-- **生成路径**：模型 JSON → schema 校验 → 引用完整性校验 → **非法 source_ref 自动剔除**，记入 `quality_report.repaired_refs` + 警告，并执行 §11 的最低溯源门槛 → 总能产出可用初稿。
+- **生成路径**：模型 JSON → schema 校验 → 引用完整性校验 → **非法 source_ref 自动剔除**，记入 `quality_report.repaired_refs` + 警告，并执行 §11 的最低溯源门槛 → 总能产出可用初稿（malformed JSON / schema 失败 / 超时限流的兜底见 §9"LLM 调用可靠性与降级"）。
 - **手改重校验路径**（`/api/validate-yaml`）：YAML → schema → 引用 → 锚定 → 约束 → **硬报错**（`valid:false`），返回精确路径，并**重算 quality_report** 一并返回。
 
 **锚定校验（防伪造源）**：引用完整性不能只在 YAML 内部自洽（否则用户伪造 `source_paragraphs` 即可绕过）。
@@ -255,10 +266,11 @@ LLM 在 analyze 阶段只产出实体的**名称/别名/属性**（不负责定 
 错误码（硬错误）：`YAML_SYNTAX_ERROR` · `SCHEMA_ERROR` · `INVALID_SOURCE_REF` · `INVALID_CHARACTER_REF` · `INVALID_LOCATION_REF` · `SOURCE_MISMATCH`（YAML 源与 canonical 不一致）· `CONSTRAINT_VIOLATION`。
 告警码（不阻断）：`UNKNOWN_FIELD` · `SOURCE_UNVERIFIED` · `WEAK_TRACEABILITY`（见 §11）· `CONSTRAINT_WARNING`。
 
-**Schema 宽严（统一规则，消除 §5.10 与本节的歧义）**：
-- **硬失败**：缺必填字段、类型错误、枚举非法、beat 判别式/必填专有字段错误、（手改路径）引用与锚定错误。
-- **告警不硬失败**：任意对象（含顶层、scene、beat）出现的**未知/多余字段**——产出 `UNKNOWN_FIELD` 告警并标出路径，校验路径**保留**用户内容、**不静默删除**。
-此规则统一适用于全部对象类型，beat 不做"额外严格"，以保护"可编辑"体验下作者的手写内容。
+**Schema 宽严（容器宽松 + beats 严格，消除 §5.10 与本节歧义；落到 Zod 实现）**：
+- **容器对象**（metadata / adaptation_constraints / source_chapters / source_paragraphs / characters / locations / episodes / scenes / adaptation_notes）：`passthrough` 解析（保留未知键、不丢弃），校验器手动比对已知键集合，对未知/多余字段产出 `UNKNOWN_FIELD` 告警，**不硬失败、不静默删除**——保护"可编辑"体验下作者的手写注记。
+- **beats**（discriminatedUnion）：**唯一严格例外**，`.strict()` 语义——缺必填、类型/枚举错误、越界字段（属其它 type 或未知键）一律 `SCHEMA_ERROR` 并给路径（理由见 §5.10）。
+- **共性硬失败**：缺必填、类型错误、枚举非法、（手改路径）引用与锚定错误。
+> 实现备注：Zod `discriminatedUnion` 默认 `strip`、`.strict()` 全硬失败，原生都不提供"仅告警"；故"容器告警"由解析后手动 key-diff 实现，"beats 严格"由 `.strict()` 实现。
 
 **约束检查**（产出 `constraint_warnings`，手改路径升级为 `CONSTRAINT_VIOLATION`）：集数是否等于 `episode_count`；每集 `estimated_duration_seconds` 是否接近目标；`opening_hook_required` 时首集是否有非空 `opening_hook`；`cliffhanger_required` 时各集是否有非空 `cliffhanger`。
 
@@ -292,6 +304,8 @@ LLM 在 analyze 阶段只产出实体的**名称/别名/属性**（不负责定 
 - 有 `OPENAI_API_KEY` 且非强制 fixture：用 `LiveLLMProvider`，任意文本走实时生成。
 - 无 `OPENAI_API_KEY`：内置 Demo → fixture 跑通；自定义文本 → UI 明确提示需配置 `OPENAI_API_KEY`，不回退、不伪造。
 
+**前置闸门（UI，采纳第二轮评审 #4）**：离线 / fixture 模式下对输入做规范化指纹预检——仅当与内置 Demo 指纹一致才启用"生成"；非 Demo 输入则**灰化 / 禁用生成按钮**并就地提示"当前离线 Demo 模式，仅内置 Demo 可生成；自定义文本请配置 `OPENAI_API_KEY`"，从根上杜绝"拿到与输入不符的 Demo 剧本、引用全红"。
+
 价值：评委一键跑通内置 Demo（无需 Key）、测试可确定性复现、CI 不触网、把确定性内核与随机 LLM 解耦——强化工程深度叙事（验收 8）。
 
 ---
@@ -300,7 +314,7 @@ LLM 在 analyze 阶段只产出实体的**名称/别名/属性**（不负责定 
 
 | 路由 | 入 | 出 |
 |---|---|---|
-| `POST /api/parse` | `{text}` | `{chapters, source_paragraphs, source_fingerprint, stats:{chapter_count,paragraph_count,character_count}, checks:{meets_minimum_chapters:bool}}` |
+| `POST /api/parse` | `{text}` | `{chapters, source_paragraphs, source_fingerprint, stats:{chapter_count,paragraph_count,character_count}, checks:{meets_minimum_chapters:bool, empty_input:bool, detected_chapter_count:int}}` |
 | `POST /api/analyze` | `{chapters, source_paragraphs}` | `{characters, locations, entity_catalog, chapter_summaries, key_events, conflicts}`（analyze LLM 抽取实体后，由确定性 normalize-entities 尾步去重并赋予稳定实体 ID，`entity_catalog` 即合法实体 ID 清单） |
 | `POST /api/plan-scenes` | `{analyze 结果（含 entity_catalog）, source_paragraphs, constraints}` | `{episodes(骨架), scene_plan, pacing_notes, adaptation_strategy}` |
 | `POST /api/generate-script` | 前序结果 | `{script_json, script_yaml, validation_result, quality_report}` |
@@ -314,7 +328,7 @@ LLM 在 analyze 阶段只产出实体的**名称/别名/属性**（不负责定 
 
 不做营销落地页，直接做工具工作台，模块：
 1. **输入区**：文本粘贴 / TXT 上传 / 加载内置 Demo。
-2. **流程区**：解析 → 分析 → 规划 → 生成 → 校验，分步可见、可重跑。
+2. **流程区**：解析 → 分析 → 规划 → 生成 → 校验，分步可见、可重跑（离线 / fixture 模式下非 Demo 输入禁用"生成"，见 §12）。
 3. **中间结果区**：章节列表、段落 ID、人物表、事件线、场景规划。
 4. **YAML 编辑区**：可编辑 YAML + "重新校验"按钮 + 路径级错误/告警提示 + 重算后的 quality_report 展示。
 5. **导出区**：`script.yaml` / `script.json` / `script-yaml-schema.md` / `adaptation-report.md`。
@@ -327,12 +341,13 @@ LLM 在 analyze 阶段只产出实体的**名称/别名/属性**（不负责定 
 - `normalize` + `paragraph-id`：幂等性、空白不变性、不同内容不同 hash。
 - `entity-id` + `normalize-entities`：同名/别名合并、确定性 ID、引用回填、撞 hash 消歧。
 - `chapters`：各章节标题模式、段落切分、<3 章回显。
-- `script-schema`：合法样例通过；缺字段/错枚举/beat 联合错误被拒；未知字段产出告警而非失败。
+- `script-schema`：合法样例通过；缺字段/错枚举/beat 越界字段被拒（beat 严格）；容器未知字段产出 `UNKNOWN_FIELD` 告警而非失败。
 - `referential`：合法引用通过；非法 source_ref/character_id/location_id 命中并给路径。
 - `anchor`：携带 canonical 时伪造 `source_paragraphs`/指纹被拒（`SOURCE_MISMATCH`）；未携带时给 `SOURCE_UNVERIFIED` 告警。
 - `constraints`：集数/时长/钩子/悬念违例被检出。
 - `convert` + `fingerprint`：JSON→YAML→parse→JSON 往返一致；指纹可复算。
 - `quality-report`：覆盖率/修复列表/`untraceable_scenes`/覆盖率阈值告警计算正确；用户填写的 report 被忽略重算。
+- `llm 可靠性`（mock provider）：malformed JSON / schema 失败触发回灌重试与确定性兜底；超时触发降级；产出仍 schema-valid。
 
 **集成测试**：fixture 模式跑完整 pipeline（parse→analyze→normalize→plan→generate→validate），断言产出 schema-valid、source_refs 全部存在、强锚定通过。
 
@@ -351,8 +366,8 @@ LLM 在 analyze 阶段只产出实体的**名称/别名/属性**（不负责定 
 ## 17. 落地顺序（贴合 2026-06-07 截止）
 
 - **P0 必达**：脚手架；确定性内核（解析+段落ID、实体归一化+实体ID、Zod Schema、校验器含锚定、quality_report 重算、JSON↔YAML、fingerprint）；`FixtureProvider` + Demo 小说 + fixtures；一条可跑生成链路；最小工作台（粘贴/Demo → 生成 → 展示 YAML + 中间结果 → 重校验）；**Schema 设计文档**；README。
-- **P1**：`LiveLLMProvider` 三阶段；YAML 编辑器 + 路径级错误/告警 UI；四种导出；溯源为空场景的定向 re-anchor。
-- **P2**：打磨、更多章节格式、Demo 视频脚本。
+- **P1**：`LiveLLMProvider` 三阶段（含 §9 调用可靠性与降级）；YAML 编辑器 + 路径级错误/告警 UI；四种导出；溯源为空场景的定向 re-anchor；**Demo 视频脚本 + 录制（fixture 模式，截止前预留 2–3 小时固定时间块）**。
+- **P2**：打磨、更多章节格式、live 路径压测。
 
 PR 拆分沿用根方案第 9 节（7 个 PR），但以 P0 为可演示底线。合规细则见 §20。
 
@@ -374,6 +389,10 @@ PR 拆分沿用根方案第 9 节（7 个 PR），但以 P0 为可演示底线�
 12. `/api/validate-yaml` 返回的 `quality_report` 为系统重算值，用户手填值被忽略。
 13. 实体 ID 由系统确定性生成；fixture 模式下可复现。
 14. 自动剔除后溯源为空的场景被标记为 `WEAK_TRACEABILITY` 告警（不阻断生成）。
+15. live 路径模型返回 malformed JSON / schema 失败 / 超时，经重试与确定性兜底后仍产出 schema-valid 结果或明确降级提示，不把错误当结果抛给用户。
+16. 空 / 纯空白输入 → `empty_input` 信号 + UI 引导，不误报为解析失败。
+17. 无章节标题的非空文本 → 回退单章解析（段落不丢），仍以 `meets_minimum_chapters:false` 拦截生成并提示补充章节标记。
+18. 完成 ≤3 分钟 Demo 视频（fixture 模式），覆盖 输入→解析→生成→溯源→编辑→重校验→导出，README 放置链接。
 
 ---
 
@@ -413,3 +432,13 @@ PR 拆分沿用根方案第 9 节（7 个 PR），但以 P0 为可演示底线�
 | 5 | 自动剔除需最低质量门槛 | 采纳，拒绝"生成失败"分支 | §11 `WEAK_TRACEABILITY` 告警 + `untraceable_scenes`，不阻断生成 |
 | 6 | fixture 仅保证内置 Demo | 采纳 | §12 范围澄清与 Provider 边界 |
 | 7 | 写入开发过程合规计划 | 采纳（轻量） | §20 |
+
+### 第二轮评审吸收（v1.2）
+
+| # | 评审建议 | 处置 | 落点 |
+|---|---|---|---|
+| 1 | Demo 视频从交付物/验收消失 | 采纳 | §2 D7、§18 验收 18、§17 提至 P1 末并预留时间块 |
+| 2 | live LLM 路径失败处理未规定 | 采纳 | §9"LLM 调用可靠性与降级"、§10 生成路径引用、§15、§18 验收 15 |
+| 3 | beats 严格 vs 全局宽松冲突 | 采纳（**反转 v1.1 的"统一宽松"**，改为 beats 严格、容器宽松） | §5.10、§10、§15 |
+| 4 | fixture 非 Demo + 无 Key 行为 | v1.1 §12 已定义"不回退不伪造"，本轮补强 UI 硬闸门（灰化按钮 + 指纹预检） | §12 前置闸门、§14 |
+| 5 | 0 章 / 空输入未定义 | 采纳 | §7 边界、§13 checks、§18 验收 16–17 |

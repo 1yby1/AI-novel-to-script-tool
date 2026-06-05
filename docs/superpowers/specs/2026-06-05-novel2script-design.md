@@ -189,7 +189,7 @@ LLM 在 analyze 阶段只产出实体的**名称/别名/属性**（不负责定 
 
 ### 6.3 源指纹 `source_fingerprint`
 
-= 对 canonical `source_paragraphs` 的有序 `(id, hash)` 列表做 SHA-256 取前 16 位十六进制。写入 `metadata.source_fingerprint`，作为"这份剧本锚定于哪一次解析结果"的轻量证据，供 §10 的锚定校验使用。
+= 对 canonical `source_paragraphs` 的有序 `id` 列表做 SHA-256 取前 16 位十六进制（`id` 已内嵌段落内容 hash 与位置，故等价于对 `(id, hash)` 取摘要）。写入 `metadata.source_fingerprint`，作为"这份剧本锚定于哪一次解析结果"的轻量证据，供 §10 的锚定校验使用。
 
 ---
 
@@ -263,7 +263,7 @@ LLM 在 analyze 阶段只产出实体的**名称/别名/属性**（不负责定 
   "code": "INVALID_SOURCE_REF",
   "message": "source_ref 不存在：ch9_p1_zzzzzzzz" }
 ```
-错误码（硬错误）：`YAML_SYNTAX_ERROR` · `SCHEMA_ERROR` · `INVALID_SOURCE_REF` · `INVALID_CHARACTER_REF` · `INVALID_LOCATION_REF` · `SOURCE_MISMATCH`（YAML 源与 canonical 不一致）· `CONSTRAINT_VIOLATION`。
+错误码（硬错误）：`YAML_SYNTAX_ERROR` · `SCHEMA_ERROR` · `INVALID_SOURCE_REF` · `INVALID_CHARACTER_REF` · `INVALID_LOCATION_REF` · `INVALID_CHAPTER_REF` · `SOURCE_MISMATCH`（YAML 源与 canonical 不一致）· `CONSTRAINT_VIOLATION`。
 告警码（不阻断）：`UNKNOWN_FIELD` · `SOURCE_UNVERIFIED` · `WEAK_TRACEABILITY`（见 §11）· `CONSTRAINT_WARNING`。
 
 **Schema 宽严（容器宽松 + beats 严格，消除 §5.10 与本节歧义；落到 Zod 实现）**：

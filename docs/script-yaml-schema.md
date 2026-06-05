@@ -233,7 +233,7 @@ quality_report: { ... }          # 质量报告（全部由系统计算）
 引用完整性不能只在 YAML 内部自洽——否则作者伪造一份 `source_paragraphs` 即可绕过。因此校验时以**原始解析结果**为准：携带解析阶段的 canonical 段落 ID 集 / 指纹时，校验 YAML 的 `source_paragraphs` 与 `source_refs` 必须是 canonical 的子集，且 `metadata.source_fingerprint` 与 canonical 一致；不一致 → `SOURCE_MISMATCH`。脱离上下文时退化为内部一致性校验并给出 `SOURCE_UNVERIFIED` 告警。
 
 ### 4.5 `chapter_id` 引用（段落 → 章节）
-`source_paragraphs[].chapter_id` 必须指向真实存在的 `source_chapters[].id`。生成器按解析结果保证；脱离上下文的手改 YAML 由校验器核验，缺失目标章节 → 视为引用错误。
+`source_paragraphs[].chapter_id` 必须指向真实存在的 `source_chapters[].id`。生成器按解析结果保证；脱离上下文的手改 YAML 由校验器核验，缺失目标章节 → `INVALID_CHAPTER_REF`。
 
 ### 4.6 唯一性与序号
 - 各类 `id`（段落、人物、地点）在各自集合内应**唯一**：段落 ID 由"位置 + 内容 hash"构造、人物/地点 ID 由名称派生去重，生成器即保证唯一；手改后由校验器核验。
@@ -253,7 +253,7 @@ quality_report: { ... }          # 质量报告（全部由系统计算）
   "code": "INVALID_SOURCE_REF",
   "message": "source_ref 不存在：ch9_p1_zzzzzzzz" }
 ```
-- **硬错误（阻断）**：`YAML_SYNTAX_ERROR` · `SCHEMA_ERROR` · `INVALID_SOURCE_REF` · `INVALID_CHARACTER_REF` · `INVALID_LOCATION_REF` · `SOURCE_MISMATCH` · `CONSTRAINT_VIOLATION`
+- **硬错误（阻断）**：`YAML_SYNTAX_ERROR` · `SCHEMA_ERROR` · `INVALID_SOURCE_REF` · `INVALID_CHARACTER_REF` · `INVALID_LOCATION_REF` · `INVALID_CHAPTER_REF` · `SOURCE_MISMATCH` · `CONSTRAINT_VIOLATION`
 - **告警（不阻断）**：`UNKNOWN_FIELD` · `SOURCE_UNVERIFIED` · `WEAK_TRACEABILITY` · `CONSTRAINT_WARNING`
 
 **生成 vs 手改两条路径**：生成阶段对非法 `source_ref` **自动剔除**并记入 `repaired_refs`，保证总能产出可用初稿；作者手改后的 YAML 重新校验时则**硬报错**并给出精确路径。

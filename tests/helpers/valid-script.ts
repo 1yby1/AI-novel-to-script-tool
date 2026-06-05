@@ -39,6 +39,9 @@ export function validScript(): Script {
       language: "zh-CN",
       created_at: "2026-06-05T00:00:00Z",
       generator: { model: "fixture", mode: "fixture" },
+      // Intentionally NOT the canonical fingerprint of these paragraphs — anchor tests set
+      // it explicitly. So validScript() is schema/referential/constraint-clean but NOT
+      // anchor-clean standalone; reset source_fingerprint before asserting checkAnchor.
       source_fingerprint: "0000000000000000",
     },
     adaptation_constraints: {

@@ -20,7 +20,7 @@
 schema_version: "1.0"
 metadata: { ... }                # 作品与生成元信息
 adaptation_constraints: { ... }  # 改编约束（集数、时长、钩子、悬念、忠实度）
-source_chapters: [ ... ]         # 来源章节（解析产物）
+source_chapters: [ ... ]         # 来源章节（解析得到，章节摘要由分析阶段补全）
 source_paragraphs: [ ... ]       # 来源段落 + 稳定 ID（可校验锚点集）
 characters: [ ... ]              # 人物素材库（确定性 ID）
 locations: [ ... ]               # 地点素材库（确定性 ID）
@@ -43,6 +43,8 @@ quality_report: { ... }          # 质量报告（全部由系统计算）
 ## 3. 字段定义
 
 > 约定：下表"必填"列中，✅=必填，⭕=可选（`optional`）。容器对象（除 beats 外）均允许额外的未知字段（见 §5）。
+>
+> 关于"格式"：本 Schema 将段落 ID、实体 ID、`hash`、`created_at` 等一律按 `string` 校验；它们的**具体格式由生成器保证**，并由引用/锚定校验器核验**存在性与一致性**——Schema 本身**不做正则格式校验**。原因：关注点是"引用是否真实存在"而非"字符串是否符合某种格式"，这样手改后只要引用仍能解析即可通过，降低无谓的格式拒绝。
 
 ### 3.1 `schema_version`
 固定字符串 `"1.0"`。用于未来 Schema 演进时的兼容判断。
@@ -94,7 +96,7 @@ quality_report: { ... }          # 质量报告（全部由系统计算）
 | `id` | string | ✅ | 章节 ID，如 `ch1` |
 | `title` | string | ✅ | 章节标题（标记后剩余文本；无则回退 `第N章`） |
 | `index` | int ≥ 1 | ✅ | 章节序号，从 1 起 |
-| `summary` | string | ✅ | 章节摘要 |
+| `summary` | string | ✅ | 章节摘要（章节由解析得到；摘要在分析阶段补全，最终 YAML 中必填） |
 
 ### 3.5 `source_paragraphs[]` —— 可校验锚点集
 原文段落及其稳定 ID。剧本所有 `source_refs` 只能引用这里存在的 `id`。
@@ -201,7 +203,7 @@ quality_report: { ... }          # 质量报告（全部由系统计算）
 | `source_refs` | string[] | ⭕ | 相关原文出处 |
 
 ### 3.12 `quality_report` —— 全部由系统计算
-不接受模型/用户填写，每次校验时**重算**并以重算值为准。
+不接受模型/用户填写，每次校验时**重算**并以重算值为准。重新校验作者编辑过的 YAML 时，系统**忽略**其中的 `quality_report` 并重算注入——因此即使作者删除或改动本块，也不会因"缺失/不符"产生结构错误（始终以系统重算结果为准）。
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `source_coverage_ratio` | number 0..1 | 被引用的去重段落数 / 总段落数 |
@@ -229,6 +231,13 @@ quality_report: { ... }          # 质量报告（全部由系统计算）
 
 ### 4.4 `source_fingerprint`（防伪造源）
 引用完整性不能只在 YAML 内部自洽——否则作者伪造一份 `source_paragraphs` 即可绕过。因此校验时以**原始解析结果**为准：携带解析阶段的 canonical 段落 ID 集 / 指纹时，校验 YAML 的 `source_paragraphs` 与 `source_refs` 必须是 canonical 的子集，且 `metadata.source_fingerprint` 与 canonical 一致；不一致 → `SOURCE_MISMATCH`。脱离上下文时退化为内部一致性校验并给出 `SOURCE_UNVERIFIED` 告警。
+
+### 4.5 `chapter_id` 引用（段落 → 章节）
+`source_paragraphs[].chapter_id` 必须指向真实存在的 `source_chapters[].id`。生成器按解析结果保证；脱离上下文的手改 YAML 由校验器核验，缺失目标章节 → 视为引用错误。
+
+### 4.6 唯一性与序号
+- 各类 `id`（段落、人物、地点）在各自集合内应**唯一**：段落 ID 由"位置 + 内容 hash"构造、人物/地点 ID 由名称派生去重，生成器即保证唯一；手改后由校验器核验。
+- `episode_no` / `scene_no` / `beat_no` 在其父级内应**唯一且自 1 连续递增**。生成器按序产出；校验器核验唯一性，连续性缺口以告警（不阻断）提示，便于作者察觉漏删/错位。
 
 ---
 
@@ -301,7 +310,7 @@ source_paragraphs:
   - { id: ch1_p1_a1b2c3d4, chapter_id: ch1, paragraph_index: 1, text_preview: 林深回到了旧码头。, hash: a1b2c3d4 }
   - { id: ch1_p2_e5f6a7b8, chapter_id: ch1, paragraph_index: 2, text_preview: 海风很冷，灯塔还亮着。, hash: e5f6a7b8 }
 characters:
-  - id: char_lin_3f9a1b
+  - id: char_3f9a1b
     name: 林深
     aliases: [老林]
     role: protagonist
@@ -309,7 +318,7 @@ characters:
     relationship_notes: 与灯塔看守人苏晚旧识
     source_refs: [ch1_p1_a1b2c3d4]
 locations:
-  - { id: loc_dock_77c2e1, name: 旧码头, description: 雾气弥漫的废弃码头, source_refs: [ch1_p1_a1b2c3d4] }
+  - { id: loc_77c2e1, name: 旧码头, description: 雾气弥漫的废弃码头, source_refs: [ch1_p1_a1b2c3d4] }
 episodes:
   - episode_no: 1
     title: 归来
@@ -319,12 +328,12 @@ episodes:
     estimated_duration_seconds: 120
     scenes:
       - scene_no: 1
-        heading: { int_ext: EXT, location_id: loc_dock_77c2e1, time_of_day: NIGHT }
-        present_character_ids: [char_lin_3f9a1b]
+        heading: { int_ext: EXT, location_id: loc_77c2e1, time_of_day: NIGHT }
+        present_character_ids: [char_3f9a1b]
         summary: 林深独自登岸，旧码头一如三年前。
         beats:
           - { beat_no: 1, type: action, description: 林深踏上湿滑的栈桥，海风灌进衣领。, source_refs: [ch1_p1_a1b2c3d4] }
-          - { beat_no: 2, type: dialogue, character_id: char_lin_3f9a1b, parenthetical: 低声, line: 三年了。, source_refs: [ch1_p2_e5f6a7b8] }
+          - { beat_no: 2, type: dialogue, character_id: char_3f9a1b, parenthetical: 低声, line: 三年了。, source_refs: [ch1_p2_e5f6a7b8] }
           - { beat_no: 3, type: transition, transition_kind: CUT_TO, source_refs: [] }
         source_refs: [ch1_p1_a1b2c3d4, ch1_p2_e5f6a7b8]
 adaptation_notes:

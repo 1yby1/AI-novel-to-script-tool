@@ -1,0 +1,210 @@
+{
+  "schema_version": "1.0",
+  "metadata": {
+    "title": "雾港旧约",
+    "source_type": "novel",
+    "target_format": "screenplay",
+    "adaptation_profile": "short_drama",
+    "language": "zh-CN",
+    "created_at": "2026-06-05T00:00:00Z",
+    "generator": { "model": "fixture", "mode": "fixture" },
+    "source_fingerprint": "68d7c2e2e2ec7e59"
+  },
+  "adaptation_constraints": {
+    "structure_unit": "episode",
+    "episode_count": 3,
+    "target_duration_seconds_per_episode": 120,
+    "opening_hook_required": true,
+    "cliffhanger_required": true,
+    "fidelity_level": "balanced"
+  },
+  "source_chapters": [
+    { "id": "ch1", "title": "归港", "index": 1, "summary": "林深回到雾港旧码头，苏晚在灯塔门口等他，旧案重新浮出水面。" },
+    { "id": "ch2", "title": "重逢", "index": 2, "summary": "苏晚交出怀表线索，周砚封锁仓库阻止两人追查货单。" },
+    { "id": "ch3", "title": "抉择", "index": 3, "summary": "林深找到父亲留下的信，意识到公开真相会改变整个雾港。" }
+  ],
+  "source_paragraphs": [
+    { "id": "ch1_p1_df6f5806", "chapter_id": "ch1", "paragraph_index": 1, "text_preview": "林深在雾港的旧码头停下脚步，海风把三年前那场沉船的咸味重新卷回他的喉咙。", "hash": "df6f5806" },
+    { "id": "ch1_p2_cfaa58f1", "chapter_id": "ch1", "paragraph_index": 2, "text_preview": "灯塔顶端忽明忽暗，苏晚站在锈门后，没有问他为什么还活着。", "hash": "cfaa58f1" },
+    { "id": "ch2_p1_acbae21c", "chapter_id": "ch2", "paragraph_index": 1, "text_preview": "苏晚把一只旧怀表推到林深面前，表盖内侧刻着父亲失踪前留下的坐标。", "hash": "acbae21c" },
+    { "id": "ch2_p2_87f95f45", "chapter_id": "ch2", "paragraph_index": 2, "text_preview": "码头工头周砚带人封住仓库，警告他们别再翻那夜的货单。", "hash": "87f95f45" },
+    { "id": "ch3_p1_cbe21379", "chapter_id": "ch3", "paragraph_index": 1, "text_preview": "暴雨压低了海面，林深在仓库暗格里找到了父亲写给苏晚的信。", "hash": "cbe21379" },
+    { "id": "ch3_p2_3d978716", "chapter_id": "ch3", "paragraph_index": 2, "text_preview": "他终于明白真相会毁掉雾港，也会救回被周砚控制的船员家属。", "hash": "3d978716" }
+  ],
+  "characters": [
+    {
+      "id": "char_aadd69",
+      "name": "林深",
+      "aliases": [],
+      "role": "protagonist",
+      "motivation": "查清父亲沉船真相，同时决定是否公开会伤害雾港的证据。",
+      "relationship_notes": "与苏晚旧识，被周砚视为威胁。",
+      "source_refs": ["ch1_p1_df6f5806", "ch3_p2_3d978716"]
+    },
+    {
+      "id": "char_d65c66",
+      "name": "苏晚",
+      "aliases": [],
+      "role": "supporting",
+      "motivation": "守住父辈留下的线索，并逼林深面对真相。",
+      "relationship_notes": "灯塔守望者，知道林深父亲失踪前的秘密。",
+      "source_refs": ["ch1_p2_cfaa58f1", "ch2_p1_acbae21c", "ch3_p1_cbe21379"]
+    },
+    {
+      "id": "char_005a7b",
+      "name": "周砚",
+      "aliases": ["周工头"],
+      "role": "antagonist",
+      "motivation": "掩盖当年货单与沉船事故的关系，维持对雾港的控制。",
+      "relationship_notes": "码头工头，封锁仓库并恐吓林深与苏晚。",
+      "source_refs": ["ch2_p2_87f95f45", "ch3_p2_3d978716"]
+    }
+  ],
+  "locations": [
+    {
+      "id": "loc_a31088",
+      "name": "雾港旧码头",
+      "description": "林深归来的入口，海风、旧栈桥和沉船记忆交叠。",
+      "source_refs": ["ch1_p1_df6f5806", "ch3_p2_3d978716"]
+    },
+    {
+      "id": "loc_3bbdc4",
+      "name": "灯塔门口",
+      "description": "苏晚守候线索的地方，灯光忽明忽暗，带有秘密感。",
+      "source_refs": ["ch1_p2_cfaa58f1", "ch2_p1_acbae21c"]
+    },
+    {
+      "id": "loc_3cb28f",
+      "name": "封闭仓库",
+      "description": "周砚封锁的证据现场，暗格里藏着父亲的信。",
+      "source_refs": ["ch2_p2_87f95f45", "ch3_p1_cbe21379"]
+    }
+  ],
+  "episodes": [
+    {
+      "episode_no": 1,
+      "title": "归港灯灭",
+      "opening_hook": "三年后，林深踏上旧码头，海风把他父亲沉船那夜的味道吹了回来。",
+      "core_conflict": "林深想知道苏晚为何等他，苏晚却先抛出他不该活着的谜。",
+      "cliffhanger": "灯塔在两人对视时骤然熄灭。",
+      "estimated_duration_seconds": 120,
+      "scenes": [
+        {
+          "scene_no": 1,
+          "heading": { "int_ext": "EXT", "location_id": "loc_a31088", "time_of_day": "DUSK" },
+          "present_character_ids": ["char_aadd69"],
+          "summary": "林深独自归港，沉船记忆压回胸口。",
+          "beats": [
+            { "beat_no": 1, "type": "action", "source_refs": ["ch1_p1_df6f5806"], "description": "林深停在旧码头尽头，潮声像把三年前的沉船拖回眼前。" },
+            { "beat_no": 2, "type": "dialogue", "source_refs": ["ch1_p1_df6f5806"], "character_id": "char_aadd69", "parenthetical": "压低声音", "line": "我回来了，爸。" },
+            { "beat_no": 3, "type": "transition", "source_refs": [], "transition_kind": "CUT_TO" }
+          ],
+          "source_refs": ["ch1_p1_df6f5806"]
+        },
+        {
+          "scene_no": 2,
+          "heading": { "int_ext": "EXT", "location_id": "loc_3bbdc4", "time_of_day": "NIGHT" },
+          "present_character_ids": ["char_aadd69", "char_d65c66"],
+          "summary": "苏晚在灯塔门口出现，暗示林深本不该活着。",
+          "beats": [
+            { "beat_no": 1, "type": "action", "source_refs": ["ch1_p2_cfaa58f1"], "description": "灯塔光线忽明忽暗，苏晚站在锈门后看着他。" },
+            { "beat_no": 2, "type": "dialogue", "source_refs": ["ch1_p2_cfaa58f1"], "character_id": "char_d65c66", "line": "他们都说你死在那夜了。" },
+            { "beat_no": 3, "type": "dialogue", "source_refs": ["ch1_p2_cfaa58f1"], "character_id": "char_aadd69", "line": "那就从那夜重新查。" }
+          ],
+          "source_refs": ["ch1_p2_cfaa58f1"]
+        }
+      ]
+    },
+    {
+      "episode_no": 2,
+      "title": "怀表坐标",
+      "opening_hook": "苏晚打开怀表，坐标指向周砚封死的仓库。",
+      "core_conflict": "林深和苏晚要查货单，周砚出面封路。",
+      "cliffhanger": "仓库门缝里传出怀表一样的滴答声。",
+      "estimated_duration_seconds": 120,
+      "scenes": [
+        {
+          "scene_no": 1,
+          "heading": { "int_ext": "INT_EXT", "location_id": "loc_3bbdc4", "time_of_day": "NIGHT" },
+          "present_character_ids": ["char_aadd69", "char_d65c66"],
+          "summary": "苏晚交出怀表坐标，指向父亲失踪前的路线。",
+          "beats": [
+            { "beat_no": 1, "type": "action", "source_refs": ["ch2_p1_acbae21c"], "description": "苏晚把旧怀表推到林深掌心，表盖内侧露出一串坐标。" },
+            { "beat_no": 2, "type": "dialogue", "source_refs": ["ch2_p1_acbae21c"], "character_id": "char_d65c66", "line": "你父亲失踪前，只把它交给了我。" },
+            { "beat_no": 3, "type": "dialogue", "source_refs": ["ch2_p1_acbae21c"], "character_id": "char_aadd69", "line": "坐标尽头是谁的仓库？" }
+          ],
+          "source_refs": ["ch2_p1_acbae21c"]
+        },
+        {
+          "scene_no": 2,
+          "heading": { "int_ext": "INT", "location_id": "loc_3cb28f", "time_of_day": "NIGHT" },
+          "present_character_ids": ["char_aadd69", "char_d65c66", "char_005a7b"],
+          "summary": "周砚封住仓库，阻止林深追查货单。",
+          "beats": [
+            { "beat_no": 1, "type": "action", "source_refs": ["ch2_p2_87f95f45"], "description": "周砚带人堵在仓库门前，铁链一圈圈缠上门把。" },
+            { "beat_no": 2, "type": "dialogue", "source_refs": ["ch2_p2_87f95f45"], "character_id": "char_005a7b", "line": "别再翻那夜的货单，雾港经不起第二次沉船。" },
+            { "beat_no": 3, "type": "transition", "source_refs": [], "transition_kind": "SMASH_CUT" }
+          ],
+          "source_refs": ["ch2_p2_87f95f45"]
+        }
+      ]
+    },
+    {
+      "episode_no": 3,
+      "title": "真相上岸",
+      "opening_hook": "暴雨夜，林深在仓库暗格里摸到父亲亲笔信。",
+      "core_conflict": "林深必须决定是否公开会毁掉雾港的真相。",
+      "cliffhanger": "周砚带人围住旧码头，逼林深交出那封信。",
+      "estimated_duration_seconds": 120,
+      "scenes": [
+        {
+          "scene_no": 1,
+          "heading": { "int_ext": "INT", "location_id": "loc_3cb28f", "time_of_day": "NIGHT" },
+          "present_character_ids": ["char_aadd69", "char_d65c66"],
+          "summary": "林深找到父亲写给苏晚的信，真相显形。",
+          "beats": [
+            { "beat_no": 1, "type": "action", "source_refs": ["ch3_p1_cbe21379"], "description": "暴雨拍在铁皮屋顶，林深从暗格里抽出一封写给苏晚的信。" },
+            { "beat_no": 2, "type": "dialogue", "source_refs": ["ch3_p1_cbe21379"], "character_id": "char_d65c66", "line": "你父亲不是逃走，他是在给我们留证据。" },
+            { "beat_no": 3, "type": "dialogue", "source_refs": ["ch3_p1_cbe21379"], "character_id": "char_aadd69", "line": "那我就把证据交给所有人。" }
+          ],
+          "source_refs": ["ch3_p1_cbe21379"]
+        },
+        {
+          "scene_no": 2,
+          "heading": { "int_ext": "EXT", "location_id": "loc_a31088", "time_of_day": "DAWN" },
+          "present_character_ids": ["char_aadd69", "char_d65c66", "char_005a7b"],
+          "summary": "林深面对周砚与雾港家属，决定让真相上岸。",
+          "beats": [
+            { "beat_no": 1, "type": "action", "source_refs": ["ch3_p2_3d978716"], "description": "天将亮，周砚的人围住旧码头，船员家属站在更远处沉默等待。" },
+            { "beat_no": 2, "type": "dialogue", "source_refs": ["ch3_p2_3d978716"], "character_id": "char_005a7b", "line": "交出信，雾港还能像以前一样活。" },
+            { "beat_no": 3, "type": "dialogue", "source_refs": ["ch3_p2_3d978716"], "character_id": "char_aadd69", "line": "雾港活在谎里，才是真正沉了。" }
+          ],
+          "source_refs": ["ch3_p2_3d978716"]
+        }
+      ]
+    }
+  ],
+  "adaptation_notes": [
+    {
+      "type": "merge",
+      "description": "将原文中的码头阻力集中到周砚身上，使短剧冲突更集中。",
+      "source_refs": ["ch2_p2_87f95f45"]
+    },
+    {
+      "type": "pacing",
+      "description": "每集保留一个强可视化线索：旧码头、怀表坐标、暗格信。",
+      "source_refs": ["ch1_p1_df6f5806", "ch2_p1_acbae21c", "ch3_p1_cbe21379"]
+    }
+  ],
+  "quality_report": {
+    "source_coverage_ratio": 1,
+    "referenced_paragraph_count": 6,
+    "total_paragraph_count": 6,
+    "missing_source_refs": [],
+    "repaired_refs": [],
+    "untraceable_scenes": [],
+    "unreferenced_key_paragraphs": [],
+    "constraint_warnings": [],
+    "manual_review_suggestions": []
+  }
+}

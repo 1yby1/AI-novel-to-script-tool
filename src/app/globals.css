@@ -367,6 +367,27 @@ button:disabled {
   margin: 0;
 }
 
+.row.clickable {
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.row.clickable:hover {
+  border-color: var(--accent);
+}
+
+.row.trace {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 .code {
   color: #334155;
   font-family: var(--font-mono);

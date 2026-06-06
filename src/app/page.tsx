@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
   FileText,
   Gauge,
   GitBranch,
@@ -15,6 +16,8 @@ import {
   Wand2,
 } from "lucide-react";
 import { DEMO_SOURCE_FINGERPRINT } from "../llm/demo-fingerprint";
+import { buildAdaptationReport } from "../core/report/adaptation-report";
+import type { Script } from "../core/schema/script-schema";
 
 interface ValidationItem {
   path: string;
@@ -91,9 +94,11 @@ interface ValidationResult {
   errors: ValidationItem[];
   warnings: ValidationItem[];
   quality_report: QualityReport | null;
+  script?: Script | null;
 }
 
 interface GenerateResult {
+  script_json: Script;
   script_yaml: string;
   validation_result: ValidationResult;
   quality_report: QualityReport | null;
@@ -120,6 +125,41 @@ async function getJson<T>(url: string): Promise<T> {
   return data as T;
 }
 
+function downloadFile(name: string, content: string): void {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+interface TraceRow {
+  key: string;
+  label: string;
+  preview: string;
+  source_refs: string[];
+}
+
+function flattenBeats(script: Script): TraceRow[] {
+  const rows: TraceRow[] = [];
+  script.episodes.forEach((ep) =>
+    ep.scenes.forEach((sc) =>
+      sc.beats.forEach((b) => {
+        const preview = b.type === "dialogue" ? `「${b.line}」` : b.type === "action" ? b.description : `→ ${b.transition_kind}`;
+        rows.push({
+          key: `${ep.episode_no}-${sc.scene_no}-${b.beat_no}`,
+          label: `第${ep.episode_no}集 · 第${sc.scene_no}场 · beat${b.beat_no}「${b.type}」`,
+          preview,
+          source_refs: b.source_refs,
+        });
+      }),
+    ),
+  );
+  return rows;
+}
+
 function sourceParagraphIds(parseResult: ParseResult | null): string[] {
   return parseResult?.source_paragraphs.map((p) => p.id) ?? [];
 }
@@ -131,6 +171,8 @@ export default function WorkbenchPage() {
   const [plan, setPlan] = useState<PlanScenesResult | null>(null);
   const [yamlText, setYamlText] = useState("");
   const [validation, setValidation] = useState<ValidationResult | null>(null);
+  const [scriptJson, setScriptJson] = useState<Script | null>(null);
+  const [traceParaIds, setTraceParaIds] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "info" | "error"; text: string } | null>({
     type: "info",
@@ -156,6 +198,8 @@ export default function WorkbenchPage() {
     setPlan(null);
     setYamlText("");
     setValidation(null);
+    setScriptJson(null);
+    setTraceParaIds([]);
   }
 
   async function loadDemo() {
@@ -246,6 +290,7 @@ export default function WorkbenchPage() {
       });
       setYamlText(data.script_yaml);
       setValidation(data.validation_result);
+      setScriptJson(data.script_json);
       setMessage({
         type: data.validation_result.valid ? "info" : "error",
         text: data.validation_result.valid ? "已生成可编辑 YAML 初稿" : "已生成，但存在校验错误",
@@ -266,6 +311,7 @@ export default function WorkbenchPage() {
         source_paragraph_ids: sourceParagraphIds(parseResult),
       });
       setValidation(data);
+      setScriptJson(data.script ?? null);
       setMessage({ type: data.valid ? "info" : "error", text: data.valid ? "YAML 校验通过" : "YAML 存在错误" });
     } catch (e) {
       setMessage({ type: "error", text: e instanceof Error ? e.message : String(e) });
@@ -376,10 +422,15 @@ export default function WorkbenchPage() {
                     <div className="metric"><strong>{parseResult.stats.character_count}</strong><span>字</span></div>
                   </div>
                   <div className="list" style={{ marginTop: 10 }}>
-                    {parseResult.source_paragraphs.slice(0, 6).map((p) => (
-                      <div className="row" key={p.id}>
+                    {parseResult.source_paragraphs.map((p) => (
+                      <div
+                        className={`row clickable${traceParaIds.includes(p.id) ? " trace" : ""}`}
+                        id={`para-${p.id}`}
+                        key={p.id}
+                        onClick={() => setTraceParaIds([p.id])}
+                      >
                         <div className="row-title"><span>{p.chapter_id} / 第{p.paragraph_index}段</span><span className="code">{p.id}</span></div>
-                        <p>{p.text_preview}</p>
+                        <p>{p.text ?? p.text_preview}</p>
                       </div>
                     ))}
                   </div>
@@ -421,6 +472,38 @@ export default function WorkbenchPage() {
                 </div>
               ) : (
                 <p className="code">尚无分场规划</p>
+              )}
+            </div>
+
+            <div className="section">
+              <h2>溯源（点 beat 看原文 / 点原文看出处）</h2>
+              {scriptJson ? (
+                <div className="list">
+                  {flattenBeats(scriptJson).map((row) => {
+                    const hit = row.source_refs.some((r) => traceParaIds.includes(r));
+                    return (
+                      <div
+                        className={`row clickable${hit ? " trace" : ""}`}
+                        key={row.key}
+                        onClick={() => {
+                          setTraceParaIds(row.source_refs);
+                          const first = row.source_refs[0];
+                          if (first) document.getElementById(`para-${first}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+                        }}
+                      >
+                        <div className="row-title"><span>{row.label}</span></div>
+                        <p>{row.preview}</p>
+                        <div className="chips">
+                          {row.source_refs.length > 0
+                            ? row.source_refs.map((r) => <span className="code" key={r}>{r}</span>)
+                            : <span className="code">无溯源</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="code">生成剧本后可在此点击 beat 高亮其原文出处</p>
               )}
             </div>
           </div>
@@ -475,6 +558,21 @@ export default function WorkbenchPage() {
             ) : (
               <div className="finding"><AlertTriangle size={14} /> 尚无校验结果</div>
             )}
+          </div>
+          <div className="section">
+            <h2>导出</h2>
+            <div className="flow">
+              <button className="btn" disabled={yamlText.trim().length === 0} onClick={() => downloadFile("script.yaml", yamlText)}>
+                <Download size={15} /> 下载 YAML
+              </button>
+              <button className="btn" disabled={!scriptJson} onClick={() => scriptJson && downloadFile("script.json", JSON.stringify(scriptJson, null, 2))}>
+                <Download size={15} /> 下载 JSON
+              </button>
+              <button className="btn" disabled={!scriptJson} onClick={() => scriptJson && downloadFile("adaptation-report.md", buildAdaptationReport(scriptJson))}>
+                <Download size={15} /> 下载改编报告
+              </button>
+            </div>
+            {scriptJson ? null : <p className="hint">生成或重新校验后可导出 JSON / 改编报告。</p>}
           </div>
         </div>
       </section>

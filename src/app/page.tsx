@@ -42,6 +42,7 @@ interface ParseResult {
   chapters: SourceChapter[];
   source_paragraphs: SourceParagraph[];
   source_fingerprint: string;
+  mode: "live" | "fixture";
   stats: {
     chapter_count: number;
     paragraph_count: number;
@@ -138,6 +139,7 @@ export default function WorkbenchPage() {
 
   const canUseFixture = parseResult?.source_fingerprint === DEMO_SOURCE_FINGERPRINT;
   const quality = validation?.quality_report ?? null;
+  const canRun = Boolean(parseResult?.checks.meets_minimum_chapters && (canUseFixture || parseResult?.mode === "live"));
 
   const flowState = useMemo(() => {
     if (!parseResult) return "等待解析";
@@ -197,7 +199,7 @@ export default function WorkbenchPage() {
     setBusy("analyze");
     try {
       const data = await postJson<AnalyzeResult>("/api/analyze", {
-        source_fingerprint: parseResult.source_fingerprint,
+        text: novelText,
       });
       setAnalysis(data);
       setPlan(null);
@@ -216,7 +218,8 @@ export default function WorkbenchPage() {
     setBusy("plan");
     try {
       const data = await postJson<PlanScenesResult>("/api/plan-scenes", {
-        source_fingerprint: parseResult.source_fingerprint,
+        text: novelText,
+        analysis,
       });
       setPlan(data);
       setYamlText("");
@@ -234,8 +237,9 @@ export default function WorkbenchPage() {
     setBusy("generate");
     try {
       const data = await postJson<GenerateResult>("/api/generate-script", {
-        source_fingerprint: parseResult.source_fingerprint,
-        source_paragraph_ids: sourceParagraphIds(parseResult),
+        text: novelText,
+        analysis,
+        plan,
       });
       setYamlText(data.script_yaml);
       setValidation(data.validation_result);
@@ -287,6 +291,11 @@ export default function WorkbenchPage() {
             {flowState}
           </span>
           {parseResult ? (
+            <span className={parseResult.mode === "live" ? "badge good" : "badge"} title="生成模式">
+              {parseResult.mode === "live" ? "live 模式" : "离线 Demo"}
+            </span>
+          ) : null}
+          {parseResult ? (
             <span className={canUseFixture ? "badge good" : "badge warn"} title="原文指纹">
               指纹 {parseResult.source_fingerprint}
             </span>
@@ -320,7 +329,7 @@ export default function WorkbenchPage() {
                 {spinner("parse", SearchCheck)}
                 解析
               </button>
-              <button className="btn" disabled={isBusy || !parseResult?.checks.meets_minimum_chapters} onClick={runAnalyze}>
+              <button className="btn" disabled={isBusy || !canRun} onClick={runAnalyze}>
                 {spinner("analyze", ListChecks)}
                 分析
               </button>
@@ -328,7 +337,7 @@ export default function WorkbenchPage() {
                 {spinner("plan", GitBranch)}
                 规划
               </button>
-              <button className="btn success" disabled={isBusy || !plan || !canUseFixture} onClick={runGenerate}>
+              <button className="btn success" disabled={isBusy || !plan || !canRun} onClick={runGenerate}>
                 {spinner("generate", Wand2)}
                 生成
               </button>
@@ -338,10 +347,13 @@ export default function WorkbenchPage() {
               </button>
             </div>
             {message ? <div className={`message ${message.type}`}>{message.text}</div> : null}
-            {parseResult && parseResult.checks.meets_minimum_chapters && !canUseFixture ? (
+            {parseResult?.checks.meets_minimum_chapters && parseResult.mode === "fixture" && !canUseFixture ? (
               <p className="hint">
-                离线 Demo 模式：仅内置 Demo 可生成剧本。自定义文本需配置 <code>OPENAI_API_KEY</code> 走 live 模式（Plan 5）。
+                离线 Demo 模式：仅内置 Demo 可生成。自定义文本请配置 <code>OPENAI_API_KEY</code> 启用 live 模式。
               </p>
+            ) : null}
+            {parseResult?.checks.meets_minimum_chapters && parseResult.mode === "live" && !canUseFixture ? (
+              <p className="hint">live 模式：将调用真实 LLM 生成（分析 → 规划 → 生成，可能需要数十秒）。</p>
             ) : null}
           </div>
         </div>

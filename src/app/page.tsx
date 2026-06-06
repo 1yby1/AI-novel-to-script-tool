@@ -135,6 +135,31 @@ function downloadFile(name: string, content: string): void {
   URL.revokeObjectURL(url);
 }
 
+interface TraceRow {
+  key: string;
+  label: string;
+  preview: string;
+  source_refs: string[];
+}
+
+function flattenBeats(script: Script): TraceRow[] {
+  const rows: TraceRow[] = [];
+  script.episodes.forEach((ep) =>
+    ep.scenes.forEach((sc) =>
+      sc.beats.forEach((b) => {
+        const preview = b.type === "dialogue" ? `「${b.line}」` : b.type === "action" ? b.description : `→ ${b.transition_kind}`;
+        rows.push({
+          key: `${ep.episode_no}-${sc.scene_no}-${b.beat_no}`,
+          label: `第${ep.episode_no}集 · 第${sc.scene_no}场 · beat${b.beat_no}「${b.type}」`,
+          preview,
+          source_refs: b.source_refs,
+        });
+      }),
+    ),
+  );
+  return rows;
+}
+
 function sourceParagraphIds(parseResult: ParseResult | null): string[] {
   return parseResult?.source_paragraphs.map((p) => p.id) ?? [];
 }
@@ -147,6 +172,7 @@ export default function WorkbenchPage() {
   const [yamlText, setYamlText] = useState("");
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [scriptJson, setScriptJson] = useState<Script | null>(null);
+  const [traceParaIds, setTraceParaIds] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "info" | "error"; text: string } | null>({
     type: "info",
@@ -173,6 +199,7 @@ export default function WorkbenchPage() {
     setYamlText("");
     setValidation(null);
     setScriptJson(null);
+    setTraceParaIds([]);
   }
 
   async function loadDemo() {
@@ -392,10 +419,15 @@ export default function WorkbenchPage() {
                     <div className="metric"><strong>{parseResult.stats.character_count}</strong><span>字</span></div>
                   </div>
                   <div className="list" style={{ marginTop: 10 }}>
-                    {parseResult.source_paragraphs.slice(0, 6).map((p) => (
-                      <div className="row" key={p.id}>
+                    {parseResult.source_paragraphs.map((p) => (
+                      <div
+                        className={`row clickable${traceParaIds.includes(p.id) ? " trace" : ""}`}
+                        id={`para-${p.id}`}
+                        key={p.id}
+                        onClick={() => setTraceParaIds([p.id])}
+                      >
                         <div className="row-title"><span>{p.chapter_id} / 第{p.paragraph_index}段</span><span className="code">{p.id}</span></div>
-                        <p>{p.text_preview}</p>
+                        <p>{p.text ?? p.text_preview}</p>
                       </div>
                     ))}
                   </div>
@@ -437,6 +469,38 @@ export default function WorkbenchPage() {
                 </div>
               ) : (
                 <p className="code">尚无分场规划</p>
+              )}
+            </div>
+
+            <div className="section">
+              <h2>溯源（点 beat 看原文 / 点原文看出处）</h2>
+              {scriptJson ? (
+                <div className="list">
+                  {flattenBeats(scriptJson).map((row) => {
+                    const hit = row.source_refs.some((r) => traceParaIds.includes(r));
+                    return (
+                      <div
+                        className={`row clickable${hit ? " trace" : ""}`}
+                        key={row.key}
+                        onClick={() => {
+                          setTraceParaIds(row.source_refs);
+                          const first = row.source_refs[0];
+                          if (first) document.getElementById(`para-${first}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+                        }}
+                      >
+                        <div className="row-title"><span>{row.label}</span></div>
+                        <p>{row.preview}</p>
+                        <div className="chips">
+                          {row.source_refs.length > 0
+                            ? row.source_refs.map((r) => <span className="code" key={r}>{r}</span>)
+                            : <span className="code">无溯源</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="code">生成剧本后可在此点击 beat 高亮其原文出处</p>
               )}
             </div>
           </div>

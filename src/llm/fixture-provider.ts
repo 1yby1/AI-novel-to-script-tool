@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { ScriptSchema, type Script } from "../core/schema/script-schema";
 import { DEMO_SOURCE_FINGERPRINT } from "./demo-fingerprint";
-import type { AnalyzeResult, GenerateScriptResult, PlanScenesResult, ScriptProvider } from "./provider";
+import type { AnalyzeInput, AnalyzeResult, GenerateInput, GenerateScriptResult, PlanInput, PlanScenesResult, ScriptProvider } from "./provider";
 
 export { DEMO_SOURCE_FINGERPRINT } from "./demo-fingerprint";
 
@@ -29,17 +29,17 @@ export function loadDemoNovel(): string {
 }
 
 export class FixtureProvider implements ScriptProvider {
-  async analyze(input: { source_fingerprint: string }): Promise<AnalyzeResult> {
+  async analyze(input: AnalyzeInput): Promise<AnalyzeResult> {
     assertDemoFingerprint(input.source_fingerprint);
     return readJsonFixture<AnalyzeResult>("demo-analysis.json");
   }
 
-  async planScenes(input: { source_fingerprint: string }): Promise<PlanScenesResult> {
+  async planScenes(input: PlanInput): Promise<PlanScenesResult> {
     assertDemoFingerprint(input.source_fingerprint);
     return readJsonFixture<PlanScenesResult>("demo-plan.json");
   }
 
-  async generateScript(input: { source_fingerprint: string }): Promise<GenerateScriptResult> {
+  async generateScript(input: GenerateInput): Promise<GenerateScriptResult> {
     assertDemoFingerprint(input.source_fingerprint);
     const raw = readJsonFixture<unknown>("demo-script.json");
     const script_json: Script = ScriptSchema.parse(raw);

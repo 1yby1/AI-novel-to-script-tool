@@ -1,6 +1,6 @@
 # Novel2Script
 
-Novel2Script is a local workbench for turning a Chinese novel excerpt into a traceable screenplay YAML draft. The current P0 build runs fully offline with a built-in original demo novel and deterministic fixtures.
+Novel2Script is a local workbench for turning a Chinese novel into a traceable screenplay YAML draft. It runs fully offline with a built-in original demo novel + deterministic fixtures, and—when an OpenAI-compatible API key is configured—generates screenplays from arbitrary custom novels via a live LLM.
 
 ## What Works Now
 
@@ -14,7 +14,7 @@ Novel2Script is a local workbench for turning a Chinese novel excerpt into a tra
   - generate YAML
   - edit and revalidate YAML
 
-Live LLM generation is intentionally left for the next plan. Fixture mode only returns results for the built-in demo fingerprint and never maps arbitrary custom text to the demo script.
+Live LLM generation is supported: set an OpenAI-compatible `OPENAI_API_KEY` and custom novels are turned into a screenplay by the live model (analyze → plan → generate, with structured-output validation + retry, and the deterministic core still owning IDs/anchoring/validation). Without a key the workbench runs the built-in demo offline; fixture mode only returns results for the built-in demo fingerprint and never maps arbitrary custom text to the demo script.
 
 ## Requirements
 
@@ -27,13 +27,13 @@ Live LLM generation is intentionally left for the next plan. Fixture mode only r
 npm install
 ```
 
-Optional environment file:
+Optional — enable live generation for custom novels:
 
 ```bash
 copy .env.example .env.local
 ```
 
-For this P0 fixture build, no API key is required.
+Set `OPENAI_API_KEY` (any OpenAI-compatible key). Optional: `OPENAI_BASE_URL` (e.g. a Qwen/DeepSeek endpoint), `MODEL_NAME` (default `gpt-4o-mini`), `OPENAI_TIMEOUT_MS`, `LLM_MAX_RETRIES`. Set `DEMO_MODE=fixture` to force the offline demo even with a key. Without a key, the built-in demo runs offline (no key required).
 
 ## Run
 

@@ -1,4 +1,5 @@
 import type { Script } from "../core/schema/script-schema";
+import type { SourceChapter, SourceParagraph as ParsedParagraph } from "../core/parse/chapters";
 
 export interface EntityCatalogItem {
   id: string;
@@ -46,8 +47,27 @@ export interface GenerateScriptResult {
   script_yaml: string;
 }
 
+/** Source content + fingerprint shared by every stage. Optional fields are unused by the
+ *  fixture provider (gated by fingerprint) but required by the live provider. */
+export interface SourceContext {
+  source_fingerprint: string;
+  chapters?: SourceChapter[];
+  source_paragraphs?: ParsedParagraph[]; // include full `text` for the LLM
+}
+
+export type AnalyzeInput = SourceContext;
+export interface PlanInput extends SourceContext {
+  analysis?: AnalyzeResult;
+}
+export interface GenerateInput extends SourceContext {
+  analysis?: AnalyzeResult;
+  plan?: PlanScenesResult;
+  created_at?: string;
+  model?: string;
+}
+
 export interface ScriptProvider {
-  analyze(input: { source_fingerprint: string }): Promise<AnalyzeResult>;
-  planScenes(input: { source_fingerprint: string }): Promise<PlanScenesResult>;
-  generateScript(input: { source_fingerprint: string }): Promise<GenerateScriptResult>;
+  analyze(input: AnalyzeInput): Promise<AnalyzeResult>;
+  planScenes(input: PlanInput): Promise<PlanScenesResult>;
+  generateScript(input: GenerateInput): Promise<GenerateScriptResult>;
 }

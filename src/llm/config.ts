@@ -21,7 +21,7 @@ export function getLlmConfig(): LlmConfig {
     apiKey,
     baseURL: process.env.OPENAI_BASE_URL?.trim() || undefined,
     model: process.env.MODEL_NAME?.trim() || "gpt-4o-mini",
-    timeoutMs: Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? timeoutRaw : 60000,
+    timeoutMs: Number.isFinite(timeoutRaw) && timeoutRaw > 0 ? timeoutRaw : 120000,
     maxRetries: Number.isFinite(retriesRaw) && retriesRaw >= 0 ? retriesRaw : 2,
   };
 }

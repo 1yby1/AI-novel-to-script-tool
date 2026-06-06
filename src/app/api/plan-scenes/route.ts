@@ -14,6 +14,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const parsed = parseNovel(text);
   const source_fingerprint = computeSourceFingerprint(parsed.source_paragraphs);
+  const startedAt = Date.now();
   try {
     const result = await selectScriptProvider().planScenes({
       source_fingerprint,
@@ -23,6 +24,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     });
     return NextResponse.json(result);
   } catch (e) {
+    console.error(`[plan-scenes] live provider failed after ${Date.now() - startedAt}ms:`, e);
     return jsonError("PROVIDER_ERROR", e instanceof Error ? e.message : String(e), 502);
   }
 }

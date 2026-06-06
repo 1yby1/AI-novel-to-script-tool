@@ -16,6 +16,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const parsed = parseNovel(text);
   const source_fingerprint = computeSourceFingerprint(parsed.source_paragraphs);
+  const startedAt = Date.now();
   try {
     const generated = await selectScriptProvider().generateScript({
       source_fingerprint,
@@ -39,6 +40,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       quality_report: validation_result.quality_report,
     });
   } catch (e) {
+    console.error(`[generate-script] live provider failed after ${Date.now() - startedAt}ms:`, e);
     return jsonError("PROVIDER_ERROR", e instanceof Error ? e.message : String(e), 502);
   }
 }

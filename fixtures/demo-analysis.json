@@ -1,0 +1,76 @@
+{
+  "characters": [
+    {
+      "id": "char_aadd69",
+      "name": "林深",
+      "aliases": [],
+      "role": "protagonist",
+      "motivation": "查清父亲沉船真相，同时决定是否公开会伤害雾港的证据。",
+      "relationship_notes": "与苏晚旧识，被周砚视为威胁。",
+      "source_refs": ["ch1_p1_df6f5806", "ch3_p2_3d978716"]
+    },
+    {
+      "id": "char_d65c66",
+      "name": "苏晚",
+      "aliases": [],
+      "role": "supporting",
+      "motivation": "守住父辈留下的线索，并逼林深面对真相。",
+      "relationship_notes": "灯塔守望者，知道林深父亲失踪前的秘密。",
+      "source_refs": ["ch1_p2_cfaa58f1", "ch2_p1_acbae21c", "ch3_p1_cbe21379"]
+    },
+    {
+      "id": "char_005a7b",
+      "name": "周砚",
+      "aliases": ["周工头"],
+      "role": "antagonist",
+      "motivation": "掩盖当年货单与沉船事故的关系，维持对雾港的控制。",
+      "relationship_notes": "码头工头，封锁仓库并恐吓林深与苏晚。",
+      "source_refs": ["ch2_p2_87f95f45", "ch3_p2_3d978716"]
+    }
+  ],
+  "locations": [
+    {
+      "id": "loc_a31088",
+      "name": "雾港旧码头",
+      "description": "林深归来的入口，海风、旧栈桥和沉船记忆交叠。",
+      "source_refs": ["ch1_p1_df6f5806", "ch3_p2_3d978716"]
+    },
+    {
+      "id": "loc_3bbdc4",
+      "name": "灯塔门口",
+      "description": "苏晚守候线索的地方，灯光忽明忽暗，带有秘密感。",
+      "source_refs": ["ch1_p2_cfaa58f1", "ch2_p1_acbae21c"]
+    },
+    {
+      "id": "loc_3cb28f",
+      "name": "封闭仓库",
+      "description": "周砚封锁的证据现场，暗格里藏着父亲的信。",
+      "source_refs": ["ch2_p2_87f95f45", "ch3_p1_cbe21379"]
+    }
+  ],
+  "entity_catalog": [
+    { "id": "char_aadd69", "name": "林深" },
+    { "id": "char_d65c66", "name": "苏晚" },
+    { "id": "char_005a7b", "name": "周砚" },
+    { "id": "loc_a31088", "name": "雾港旧码头" },
+    { "id": "loc_3bbdc4", "name": "灯塔门口" },
+    { "id": "loc_3cb28f", "name": "封闭仓库" }
+  ],
+  "chapter_summaries": [
+    { "chapter_id": "ch1", "summary": "林深回到雾港旧码头，苏晚在灯塔门口等他，旧案重新浮出水面。" },
+    { "chapter_id": "ch2", "summary": "苏晚交出怀表线索，周砚封锁仓库阻止两人追查货单。" },
+    { "chapter_id": "ch3", "summary": "林深找到父亲留下的信，意识到公开真相会改变整个雾港。" }
+  ],
+  "key_events": [
+    "林深归港并触发沉船记忆",
+    "苏晚交出刻有坐标的旧怀表",
+    "周砚封锁仓库并警告二人",
+    "林深找到父亲写给苏晚的信",
+    "林深在公开真相与保护雾港之间做选择"
+  ],
+  "conflicts": [
+    "林深追查父亲沉船真相 vs 周砚掩盖旧货单",
+    "苏晚守护线索 vs 雾港被秘密维持的表面安稳",
+    "公开真相救人 vs 真相可能毁掉雾港"
+  ]
+}

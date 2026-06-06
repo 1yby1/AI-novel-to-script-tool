@@ -1,0 +1,44 @@
+{
+  "episodes": [
+    {
+      "episode_no": 1,
+      "title": "归港灯灭",
+      "opening_hook": "三年后，林深踏上旧码头，海风把他父亲沉船那夜的味道吹了回来。",
+      "core_conflict": "林深想知道苏晚为何等他，苏晚却先抛出他不该活着的谜。",
+      "cliffhanger": "灯塔在两人对视时骤然熄灭。",
+      "estimated_duration_seconds": 120,
+      "scene_refs": ["ch1_p1_df6f5806", "ch1_p2_cfaa58f1"]
+    },
+    {
+      "episode_no": 2,
+      "title": "怀表坐标",
+      "opening_hook": "苏晚打开怀表，坐标指向周砚封死的仓库。",
+      "core_conflict": "林深和苏晚要查货单，周砚出面封路。",
+      "cliffhanger": "仓库门缝里传出怀表一样的滴答声。",
+      "estimated_duration_seconds": 120,
+      "scene_refs": ["ch2_p1_acbae21c", "ch2_p2_87f95f45"]
+    },
+    {
+      "episode_no": 3,
+      "title": "真相上岸",
+      "opening_hook": "暴雨夜，林深在仓库暗格里摸到父亲亲笔信。",
+      "core_conflict": "林深必须决定是否公开会毁掉雾港的真相。",
+      "cliffhanger": "周砚带人围住旧码头，逼林深交出那封信。",
+      "estimated_duration_seconds": 120,
+      "scene_refs": ["ch3_p1_cbe21379", "ch3_p2_3d978716"]
+    }
+  ],
+  "scene_plan": [
+    { "episode_no": 1, "scene_no": 1, "location_id": "loc_a31088", "summary": "林深独自归港，沉船记忆压回胸口。" },
+    { "episode_no": 1, "scene_no": 2, "location_id": "loc_3bbdc4", "summary": "苏晚在灯塔门口出现，暗示林深本不该活着。" },
+    { "episode_no": 2, "scene_no": 1, "location_id": "loc_3bbdc4", "summary": "苏晚交出怀表坐标，指向父亲失踪前的路线。" },
+    { "episode_no": 2, "scene_no": 2, "location_id": "loc_3cb28f", "summary": "周砚封住仓库，阻止林深追查货单。" },
+    { "episode_no": 3, "scene_no": 1, "location_id": "loc_3cb28f", "summary": "林深找到父亲写给苏晚的信，真相显形。" },
+    { "episode_no": 3, "scene_no": 2, "location_id": "loc_a31088", "summary": "林深面对周砚与雾港家属，决定让真相上岸。" }
+  ],
+  "pacing_notes": [
+    "每集控制在两场，第一场抛线索，第二场给反转或悬念。",
+    "短剧节奏优先保留怀表、货单、暗格信三个可视化线索。"
+  ],
+  "adaptation_strategy": "保留父亲沉船主线，压缩旁支人物，把周砚作为明确对抗面。"
+}

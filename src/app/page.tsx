@@ -177,8 +177,11 @@ export default function WorkbenchPage() {
     setBusy("parse");
     try {
       const data = await postJson<ParseResult>("/api/parse", { text: novelText });
+      // Only clear analysis/plan/YAML when the source actually changed (same fingerprint =
+      // same text → keep the (possibly slow, live) downstream results instead of wiping them).
+      const sourceChanged = data.source_fingerprint !== parseResult?.source_fingerprint;
       setParseResult(data);
-      resetDownstream();
+      if (sourceChanged) resetDownstream();
       setMessage({
         type: data.checks.meets_minimum_chapters ? "info" : "error",
         text: data.checks.meets_minimum_chapters

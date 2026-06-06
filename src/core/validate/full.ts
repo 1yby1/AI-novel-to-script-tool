@@ -5,6 +5,7 @@ import { computeQualityReport, type QualityReport } from "./quality-report";
 import { checkReferential } from "./referential";
 import { validateSchema, type ValidationItem } from "./schema-validate";
 import { stripInvalidSourceRefs } from "./repair";
+import { checkIntegrity } from "./integrity";
 
 export type ValidationMode = "generate" | "edit";
 
@@ -23,6 +24,18 @@ export interface FullValidationResult {
 }
 
 const COVERAGE_WARN_THRESHOLD = 0.5;
+
+const PLACEHOLDER_QUALITY_REPORT = {
+  source_coverage_ratio: 0,
+  referenced_paragraph_count: 0,
+  total_paragraph_count: 0,
+  missing_source_refs: [],
+  repaired_refs: [],
+  untraceable_scenes: [],
+  unreferenced_key_paragraphs: [],
+  constraint_warnings: [],
+  manual_review_suggestions: [],
+};
 
 function weakTraceabilityWarnings(report: QualityReport): ValidationItem[] {
   const warnings: ValidationItem[] = [];
@@ -50,11 +63,18 @@ function weakTraceabilityWarnings(report: QualityReport): ValidationItem[] {
  */
 export function validateScriptObject(input: unknown, options: FullValidationOptions = {}): FullValidationResult {
   const mode = options.mode ?? "edit";
-  const schemaResult = validateSchema(input);
+  // quality_report is always recomputed below (spec §11), so ignore any user/model-supplied
+  // value: replace it with a valid placeholder before structural validation, so a deleted or
+  // mangled quality_report never blocks validation (it is recomputed and injected regardless).
+  const normalizedInput =
+    input && typeof input === "object" && !Array.isArray(input)
+      ? { ...(input as Record<string, unknown>), quality_report: PLACEHOLDER_QUALITY_REPORT }
+      : input;
+  const schemaResult = validateSchema(normalizedInput);
   const errors: ValidationItem[] = [...schemaResult.errors];
   const warnings: ValidationItem[] = [...schemaResult.warnings];
 
-  const parsed = ScriptSchema.safeParse(input);
+  const parsed = ScriptSchema.safeParse(normalizedInput);
   if (!parsed.success) {
     return { valid: false, errors, warnings, quality_report: null, script: null };
   }
@@ -70,6 +90,9 @@ export function validateScriptObject(input: unknown, options: FullValidationOpti
   }
 
   errors.push(...checkReferential(script));
+  const integrity = checkIntegrity(script);
+  errors.push(...integrity.errors);
+  warnings.push(...integrity.warnings);
   const anchor = checkAnchor(script, options.canonical);
   errors.push(...anchor.errors);
   warnings.push(...anchor.warnings);

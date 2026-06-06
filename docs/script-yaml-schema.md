@@ -253,8 +253,10 @@ quality_report: { ... }          # 质量报告（全部由系统计算）
   "code": "INVALID_SOURCE_REF",
   "message": "source_ref 不存在：ch9_p1_zzzzzzzz" }
 ```
-- **硬错误（阻断）**：`YAML_SYNTAX_ERROR` · `SCHEMA_ERROR` · `INVALID_SOURCE_REF` · `INVALID_CHARACTER_REF` · `INVALID_LOCATION_REF` · `INVALID_CHAPTER_REF` · `SOURCE_MISMATCH` · `CONSTRAINT_VIOLATION`
-- **告警（不阻断）**：`UNKNOWN_FIELD` · `SOURCE_UNVERIFIED` · `WEAK_TRACEABILITY` · `CONSTRAINT_WARNING`
+- **硬错误（阻断）**：`YAML_SYNTAX_ERROR` · `SCHEMA_ERROR` · `INVALID_SOURCE_REF` · `INVALID_CHARACTER_REF` · `INVALID_LOCATION_REF` · `INVALID_CHAPTER_REF` · `SOURCE_MISMATCH` · `CONSTRAINT_VIOLATION` · `DUPLICATE_ID` · `DUPLICATE_NUMBER`
+- **告警（不阻断）**：`UNKNOWN_FIELD` · `SOURCE_UNVERIFIED` · `WEAK_TRACEABILITY` · `CONSTRAINT_WARNING` · `NON_SEQUENTIAL`
+
+**完整性校验**：段落/章节/人物/地点的 `id` 必须**唯一**（重复 → `DUPLICATE_ID`）；`episode_no`/`scene_no`/`beat_no` 在各自范围内必须唯一（重复 → `DUPLICATE_NUMBER`），且建议为连续的 `1..N`（跳号/乱序 → `NON_SEQUENTIAL` 告警，不阻断）。`quality_report` 始终由系统重算，校验时忽略用户/模型填写的值——删除或改坏本块都不会报错。
 
 **生成 vs 手改两条路径**：生成阶段对非法 `source_ref` **自动剔除**并记入 `repaired_refs`，保证总能产出可用初稿；作者手改后的 YAML 重新校验时则**硬报错**并给出精确路径。
 

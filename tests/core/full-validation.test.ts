@@ -61,4 +61,14 @@ describe("validateScriptObject", () => {
 
     expect(result.warnings.some((w) => w.code === "WEAK_TRACEABILITY" && w.path === "episodes[0].scenes[0]")).toBe(true);
   });
+
+  it("ignores a mangled/deleted quality_report and recomputes it instead of failing", () => {
+    const script = validScript();
+    const canonical = canonicalOf(script);
+    script.metadata.source_fingerprint = canonical.fingerprint;
+    (script as { quality_report: unknown }).quality_report = { source_coverage_ratio: 9, bogus: true };
+    const result = validateScriptObject(script, { mode: "edit", canonical });
+    expect(result.valid).toBe(true);
+    expect(result.quality_report?.source_coverage_ratio).toBe(1);
+  });
 });

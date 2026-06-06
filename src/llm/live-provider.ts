@@ -102,7 +102,15 @@ export class LiveLLMProvider implements ScriptProvider {
       const assembled = assembleScript(input, input.analysis, partial);
       const result = ScriptSchema.safeParse(assembled);
       if (result.success) {
-        return { script_json: result.data, script_yaml: scriptToYaml(result.data) };
+        if (result.data.episodes.length > 0) {
+          return { script_json: result.data, script_yaml: scriptToYaml(result.data) };
+        }
+        lastError = "episodes 为空";
+        messages.push(
+          { role: "assistant", content: raw },
+          { role: "user", content: "episodes 不能为空，请至少生成一集（含场景与 beats）。只返回合法 json。" },
+        );
+        continue;
       }
       lastError = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
       messages.push(

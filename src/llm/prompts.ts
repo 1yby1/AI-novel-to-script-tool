@@ -1,7 +1,7 @@
 import type { ChatMessage } from "./json-llm";
 import type { AnalyzeResult, PlanScenesResult, SourceContext } from "./provider";
 
-const JSON_ONLY = "只返回一个合法 JSON 对象，不要 markdown 围栏、不要任何解释文字。";
+const JSON_ONLY = "只返回一个合法 json 对象（JSON 格式），不要 markdown 围栏、不要任何解释文字。";
 
 function paragraphCatalog(source: SourceContext): string {
   return (source.source_paragraphs ?? []).map((p) => `${p.id}: ${p.text}`).join("\n");

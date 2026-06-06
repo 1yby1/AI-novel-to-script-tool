@@ -89,6 +89,11 @@ describe("LiveLLMProvider.generateScript", () => {
     const provider = new LiveLLMProvider(fixedComplete(creativeJson));
     await expect(provider.generateScript({ ...source } as GenerateInput)).rejects.toThrow();
   });
+
+  it("retries and throws when the model keeps returning empty episodes", async () => {
+    const provider = new LiveLLMProvider(fixedComplete('{"episodes":[],"adaptation_notes":[]}'), 1);
+    await expect(provider.generateScript({ ...source, analysis, plan } as GenerateInput)).rejects.toThrow();
+  });
 });
 
 describe("LiveLLMProvider.planScenes", () => {

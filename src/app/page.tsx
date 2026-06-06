@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
   FileText,
   Gauge,
   GitBranch,
@@ -15,6 +16,8 @@ import {
   Wand2,
 } from "lucide-react";
 import { DEMO_SOURCE_FINGERPRINT } from "../llm/demo-fingerprint";
+import { buildAdaptationReport } from "../core/report/adaptation-report";
+import type { Script } from "../core/schema/script-schema";
 
 interface ValidationItem {
   path: string;
@@ -91,9 +94,11 @@ interface ValidationResult {
   errors: ValidationItem[];
   warnings: ValidationItem[];
   quality_report: QualityReport | null;
+  script?: Script | null;
 }
 
 interface GenerateResult {
+  script_json: Script;
   script_yaml: string;
   validation_result: ValidationResult;
   quality_report: QualityReport | null;
@@ -120,6 +125,16 @@ async function getJson<T>(url: string): Promise<T> {
   return data as T;
 }
 
+function downloadFile(name: string, content: string): void {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 function sourceParagraphIds(parseResult: ParseResult | null): string[] {
   return parseResult?.source_paragraphs.map((p) => p.id) ?? [];
 }
@@ -131,6 +146,7 @@ export default function WorkbenchPage() {
   const [plan, setPlan] = useState<PlanScenesResult | null>(null);
   const [yamlText, setYamlText] = useState("");
   const [validation, setValidation] = useState<ValidationResult | null>(null);
+  const [scriptJson, setScriptJson] = useState<Script | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "info" | "error"; text: string } | null>({
     type: "info",
@@ -156,6 +172,7 @@ export default function WorkbenchPage() {
     setPlan(null);
     setYamlText("");
     setValidation(null);
+    setScriptJson(null);
   }
 
   async function loadDemo() {
@@ -243,6 +260,7 @@ export default function WorkbenchPage() {
       });
       setYamlText(data.script_yaml);
       setValidation(data.validation_result);
+      setScriptJson(data.script_json);
       setMessage({
         type: data.validation_result.valid ? "info" : "error",
         text: data.validation_result.valid ? "已生成可编辑 YAML 初稿" : "已生成，但存在校验错误",
@@ -263,6 +281,7 @@ export default function WorkbenchPage() {
         source_paragraph_ids: sourceParagraphIds(parseResult),
       });
       setValidation(data);
+      setScriptJson(data.script ?? null);
       setMessage({ type: data.valid ? "info" : "error", text: data.valid ? "YAML 校验通过" : "YAML 存在错误" });
     } catch (e) {
       setMessage({ type: "error", text: e instanceof Error ? e.message : String(e) });
@@ -472,6 +491,21 @@ export default function WorkbenchPage() {
             ) : (
               <div className="finding"><AlertTriangle size={14} /> 尚无校验结果</div>
             )}
+          </div>
+          <div className="section">
+            <h2>导出</h2>
+            <div className="flow">
+              <button className="btn" disabled={yamlText.trim().length === 0} onClick={() => downloadFile("script.yaml", yamlText)}>
+                <Download size={15} /> 下载 YAML
+              </button>
+              <button className="btn" disabled={!scriptJson} onClick={() => scriptJson && downloadFile("script.json", JSON.stringify(scriptJson, null, 2))}>
+                <Download size={15} /> 下载 JSON
+              </button>
+              <button className="btn" disabled={!scriptJson} onClick={() => scriptJson && downloadFile("adaptation-report.md", buildAdaptationReport(scriptJson))}>
+                <Download size={15} /> 下载改编报告
+              </button>
+            </div>
+            {scriptJson ? null : <p className="hint">生成或重新校验后可导出 JSON / 改编报告。</p>}
           </div>
         </div>
       </section>

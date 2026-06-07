@@ -1,11 +1,13 @@
 import { ScriptSchema } from "../core/schema/script-schema";
 import { getProfileConstraints } from "../core/schema/profiles";
 import { normalizeEntities, type RawEntity } from "../core/entities/normalize-entities";
+import { canonicalizeName } from "../core/entities/entity-id";
 import { scriptToYaml } from "../core/yaml/convert";
 import { getLlmConfig } from "./config";
 import { makeComplete } from "./client";
 import { callJson, extractJson, type ChatMessage, type CompleteFn } from "./json-llm";
 import { RawAnalyzeSchema, PlanSchema } from "./output-schemas";
+import { findPlanConsistencyErrors, normalizePlanCoverage } from "./plan-consistency";
 import { buildAnalyzeMessages, buildPlanMessages, buildGenerateMessages } from "./prompts";
 import type {
   AnalyzeInput,
@@ -27,6 +29,13 @@ function asStrArr(v: unknown): string[] {
 }
 function asRole(v: unknown): Role {
   return v === "protagonist" || v === "antagonist" || v === "minor" ? v : "supporting";
+}
+function validRefs(refs: unknown, validIds: ReadonlySet<string>): string[] {
+  return asStrArr(refs).filter((ref) => validIds.has(ref));
+}
+function safeId(id: string, prefix: string, index: number): string {
+  const cleaned = id.trim().replace(/[^a-zA-Z0-9_-]+/g, "_");
+  return cleaned || `${prefix}_${index + 1}`;
 }
 
 export class LiveLLMProvider implements ScriptProvider {
@@ -64,25 +73,100 @@ export class LiveLLMProvider implements ScriptProvider {
       source_refs: asStrArr(e.source_refs).filter((r) => validIds.has(r)),
     }));
 
+    const charByName = (name: string): string | undefined => chars.nameToId[canonicalizeName(name)];
+    const locByName = (name: string): string | undefined => locs.nameToId[canonicalizeName(name)];
+
+    const key_events: AnalyzeResult["key_events"] = raw.key_events.map((e, index) => ({
+      id: safeId(e.id, "evt", index),
+      summary: e.summary,
+      involved_character_ids: e.involved_character_names
+        .map((name) => charByName(name))
+        .filter((id): id is string => Boolean(id)),
+      location_id: e.location_name ? (locByName(e.location_name) ?? null) : null,
+      dramatic_function: e.dramatic_function,
+      source_refs: validRefs(e.source_refs, validIds),
+    }));
+
+    const conflicts: AnalyzeResult["conflicts"] = raw.conflicts.map((c, index) => ({
+      id: safeId(c.id, "conf", index),
+      parties: c.parties,
+      surface_conflict: c.surface_conflict,
+      underlying_tension: c.underlying_tension,
+      stakes: c.stakes,
+      escalation: c.escalation,
+      source_refs: validRefs(c.source_refs, validIds),
+    }));
+
+    const relationship_edges: AnalyzeResult["relationship_edges"] = raw.relationship_edges
+      .map((edge) => {
+        const from = charByName(edge.from_character_name);
+        const to = charByName(edge.to_character_name);
+        if (!from || !to) return null;
+        return {
+          from_character_id: from,
+          to_character_id: to,
+          relation: edge.relation,
+          tension: edge.tension,
+          source_refs: validRefs(edge.source_refs, validIds),
+        };
+      })
+      .filter((edge): edge is AnalyzeResult["relationship_edges"][number] => edge !== null);
+
+    const hook_candidates: AnalyzeResult["hook_candidates"] = raw.hook_candidates.map((h, index) => ({
+      id: safeId(h.id, "hook", index),
+      description: h.description,
+      why_it_hooks: h.why_it_hooks,
+      suggested_episode_no: h.suggested_episode_no,
+      source_refs: validRefs(h.source_refs, validIds),
+    }));
+
     return {
       characters,
       locations,
       entity_catalog: [...chars.catalog, ...locs.catalog],
       chapter_summaries: raw.chapter_summaries,
-      key_events: raw.key_events,
-      conflicts: raw.conflicts,
+      key_events,
+      conflicts,
+      relationship_edges,
+      hook_candidates,
+      adaptation_warnings: raw.adaptation_warnings,
     };
   }
 
   async planScenes(input: PlanInput): Promise<PlanScenesResult> {
     if (!input.analysis) throw new Error("live planScenes 需要 analyze 结果。");
-    return callJson({
-      complete: this.complete,
-      messages: buildPlanMessages(input, input.analysis),
-      schema: PlanSchema,
-      label: "plan-scenes",
-      maxRetries: this.maxRetries,
-    });
+    const analysis = input.analysis;
+    const messages: ChatMessage[] = [...buildPlanMessages(input, analysis)];
+    let lastError = "";
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      const rawText = await this.complete(messages);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(extractJson(rawText));
+      } catch (e) {
+        lastError = `JSON 解析失败：${e instanceof Error ? e.message : String(e)}`;
+        messages.push({ role: "assistant", content: rawText }, { role: "user", content: `${lastError}。只返回合法 JSON。` });
+        continue;
+      }
+      const result = PlanSchema.safeParse(parsed);
+      if (!result.success) {
+        lastError = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+        messages.push({ role: "assistant", content: rawText }, { role: "user", content: `分集/分场规划结构不合法：${lastError}。请修正后只返回合法 JSON。` });
+        continue;
+      }
+      const plan = {
+        ...result.data,
+        coverage: normalizePlanCoverage(result.data as PlanScenesResult, analysis),
+      } as PlanScenesResult;
+      const consistencyErrors = findPlanConsistencyErrors(plan, analysis, input);
+      if (consistencyErrors.length === 0) return plan;
+      lastError = consistencyErrors.join("; ");
+      messages.push(
+        { role: "assistant", content: rawText },
+        { role: "user", content: `规划引用了不存在的 ID：${lastError}。只能使用给定 event_ids、character_ids、location_ids 和 source_refs。` },
+      );
+    }
+    throw new Error(`live 分场规划在 ${this.maxRetries + 1} 次尝试后仍不合法：${lastError}`);
   }
 
   async generateScript(input: GenerateInput): Promise<GenerateScriptResult> {

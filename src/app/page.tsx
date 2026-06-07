@@ -58,11 +58,34 @@ interface ParseResult {
   };
 }
 
+interface KeyEventCard {
+  id: string;
+  summary: string;
+  dramatic_function: string;
+  source_refs: string[];
+}
+
+interface ConflictCard {
+  id: string;
+  surface_conflict: string;
+  stakes: string;
+  source_refs: string[];
+}
+
+interface HookCandidate {
+  id: string;
+  description: string;
+  why_it_hooks: string;
+  source_refs: string[];
+}
+
 interface AnalyzeResult {
   characters: Array<{ id: string; name: string; role: string; motivation: string; source_refs: string[] }>;
   locations: Array<{ id: string; name: string; description: string; source_refs: string[] }>;
-  key_events: string[];
-  conflicts: string[];
+  key_events: KeyEventCard[];
+  conflicts: ConflictCard[];
+  hook_candidates: HookCandidate[];
+  adaptation_warnings: string[];
 }
 
 interface PlanScenesResult {
@@ -70,10 +93,26 @@ interface PlanScenesResult {
     episode_no: number;
     title: string;
     opening_hook: string;
+    main_goal: string;
+    core_conflict: string;
+    turning_point: string;
     cliffhanger: string;
-    scene_refs: string[];
+    event_ids: string[];
+    source_refs: string[];
   }>;
-  scene_plan: Array<{ episode_no: number; scene_no: number; location_id: string; summary: string }>;
+  scene_plan: Array<{
+    episode_no: number;
+    scene_no: number;
+    location_id: string;
+    purpose: string;
+    conflict: string;
+    emotional_shift: string;
+    required_character_ids: string[];
+    event_ids: string[];
+    source_refs: string[];
+    summary: string;
+  }>;
+  coverage: { covered_event_ids: string[]; omitted_event_ids: string[]; coverage_ratio: number };
   pacing_notes: string[];
   adaptation_strategy: string;
 }
@@ -457,19 +496,54 @@ export default function WorkbenchPage() {
             </div>
 
             <div className="section">
-              <h2>分场规划</h2>
-              {plan ? (
+              <h2>事件 · 冲突 · 钩子</h2>
+              {analysis ? (
                 <div className="list">
-                  {plan.scene_plan.map((scene) => (
-                    <div className="row" key={`${scene.episode_no}-${scene.scene_no}`}>
-                      <div className="row-title">
-                        <span>第{scene.episode_no}集 · 第{scene.scene_no}场</span>
-                        <span className="code">{scene.location_id}</span>
-                      </div>
-                      <p>{scene.summary}</p>
+                  {analysis.key_events.map((event) => (
+                    <div className="row" key={event.id}>
+                      <div className="row-title"><span>{event.summary}</span><span className="code">{event.id}</span></div>
+                      <p>{event.dramatic_function} · {event.source_refs.join(", ")}</p>
+                    </div>
+                  ))}
+                  {analysis.conflicts.map((conflict) => (
+                    <div className="row" key={conflict.id}>
+                      <div className="row-title"><span>{conflict.surface_conflict}</span><span className="code">{conflict.id}</span></div>
+                      <p>{conflict.stakes}</p>
+                    </div>
+                  ))}
+                  {analysis.hook_candidates.map((hook) => (
+                    <div className="row" key={hook.id}>
+                      <div className="row-title"><span>{hook.description}</span><span className="code">{hook.id}</span></div>
+                      <p>{hook.why_it_hooks}</p>
                     </div>
                   ))}
                 </div>
+              ) : (
+                <p className="code">尚无事件/冲突分析</p>
+              )}
+            </div>
+
+            <div className="section">
+              <h2>分场规划</h2>
+              {plan ? (
+                <>
+                  <div className="list">
+                    {plan.scene_plan.map((scene) => (
+                      <div className="row" key={`${scene.episode_no}-${scene.scene_no}`}>
+                        <div className="row-title">
+                          <span>第{scene.episode_no}集 · 第{scene.scene_no}场</span>
+                          <span className="code">{scene.location_id}</span>
+                        </div>
+                        <p>{scene.purpose}</p>
+                        <p>{scene.conflict} · {scene.emotional_shift}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="hint">
+                    关键事件覆盖率 {Math.round(plan.coverage.coverage_ratio * 100)}%
+                    （{plan.coverage.covered_event_ids.length}/{plan.coverage.covered_event_ids.length + plan.coverage.omitted_event_ids.length}）
+                  </p>
+                </>
               ) : (
                 <p className="code">尚无分场规划</p>
               )}

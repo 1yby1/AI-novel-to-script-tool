@@ -36,7 +36,11 @@ describe("fixture pipeline", () => {
     });
 
     expect(analysis.characters.map((c) => c.id)).toContain("char_aadd69");
+    expect(analysis.key_events[0]!.id).toBe("evt_return_to_port");
+    expect(analysis.hook_candidates.length).toBeGreaterThan(0);
     expect(plan.scene_plan).toHaveLength(6);
+    expect(plan.coverage.coverage_ratio).toBe(1);
+    expect(plan.scene_plan[0]!.purpose).toContain("归港");
     expect(validation.valid).toBe(true);
     expect(validation.quality_report?.source_coverage_ratio).toBe(1);
   });

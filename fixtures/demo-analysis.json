@@ -62,15 +62,109 @@
     { "chapter_id": "ch3", "summary": "林深找到父亲留下的信，意识到公开真相会改变整个雾港。" }
   ],
   "key_events": [
-    "林深归港并触发沉船记忆",
-    "苏晚交出刻有坐标的旧怀表",
-    "周砚封锁仓库并警告二人",
-    "林深找到父亲写给苏晚的信",
-    "林深在公开真相与保护雾港之间做选择"
+    {
+      "id": "evt_return_to_port",
+      "summary": "林深归港并被沉船记忆击中",
+      "involved_character_ids": ["char_aadd69"],
+      "location_id": "loc_a31088",
+      "dramatic_function": "hook",
+      "source_refs": ["ch1_p1_df6f5806"]
+    },
+    {
+      "id": "evt_su_wan_waits",
+      "summary": "苏晚在灯塔锈门后出现，没有问林深为何还活着",
+      "involved_character_ids": ["char_aadd69", "char_d65c66"],
+      "location_id": "loc_3bbdc4",
+      "dramatic_function": "setup",
+      "source_refs": ["ch1_p2_cfaa58f1"]
+    },
+    {
+      "id": "evt_watch_coordinates",
+      "summary": "苏晚交出刻有坐标的旧怀表",
+      "involved_character_ids": ["char_aadd69", "char_d65c66"],
+      "location_id": "loc_3bbdc4",
+      "dramatic_function": "setup",
+      "source_refs": ["ch2_p1_acbae21c"]
+    },
+    {
+      "id": "evt_zhou_blocks_warehouse",
+      "summary": "周砚封锁仓库并警告二人不要追查货单",
+      "involved_character_ids": ["char_aadd69", "char_d65c66", "char_005a7b"],
+      "location_id": "loc_3cb28f",
+      "dramatic_function": "conflict",
+      "source_refs": ["ch2_p2_87f95f45"]
+    },
+    {
+      "id": "evt_letter_in_hidden_compartment",
+      "summary": "林深在仓库暗格里找到父亲写给苏晚的信",
+      "involved_character_ids": ["char_aadd69", "char_d65c66"],
+      "location_id": "loc_3cb28f",
+      "dramatic_function": "reversal",
+      "source_refs": ["ch3_p1_cbe21379"]
+    },
+    {
+      "id": "evt_truth_choice",
+      "summary": "林深意识到真相既会毁掉雾港，也会救回被控制的船员家属",
+      "involved_character_ids": ["char_aadd69", "char_005a7b"],
+      "location_id": "loc_a31088",
+      "dramatic_function": "climax",
+      "source_refs": ["ch3_p2_3d978716"]
+    }
   ],
   "conflicts": [
-    "林深追查父亲沉船真相 vs 周砚掩盖旧货单",
-    "苏晚守护线索 vs 雾港被秘密维持的表面安稳",
-    "公开真相救人 vs 真相可能毁掉雾港"
+    {
+      "id": "conf_truth_vs_coverup",
+      "parties": ["林深", "周砚"],
+      "surface_conflict": "林深追查父亲沉船真相，周砚封锁仓库和货单",
+      "underlying_tension": "雾港表面的安稳建立在旧案被掩盖之上",
+      "stakes": "公开真相会摧毁周砚的控制，也可能让整个雾港付出代价",
+      "escalation": "从归港疑问升级到怀表坐标、仓库封锁和信件证据",
+      "source_refs": ["ch1_p1_df6f5806", "ch2_p2_87f95f45", "ch3_p2_3d978716"]
+    },
+    {
+      "id": "conf_truth_vs_home",
+      "parties": ["林深", "雾港"],
+      "surface_conflict": "林深必须决定是否公开会毁掉雾港的真相",
+      "underlying_tension": "正义与保护故土之间互相撕扯",
+      "stakes": "船员家属能否获救，雾港能否承受真相",
+      "escalation": "父亲的信把个人复仇推成公共选择",
+      "source_refs": ["ch3_p1_cbe21379", "ch3_p2_3d978716"]
+    }
+  ],
+  "relationship_edges": [
+    {
+      "from_character_id": "char_aadd69",
+      "to_character_id": "char_d65c66",
+      "relation": "旧识与线索托付者",
+      "tension": "苏晚知道更多真相，却不直接说破",
+      "source_refs": ["ch1_p2_cfaa58f1", "ch2_p1_acbae21c"]
+    },
+    {
+      "from_character_id": "char_aadd69",
+      "to_character_id": "char_005a7b",
+      "relation": "追查者与阻挠者",
+      "tension": "林深越接近货单，周砚越强硬封锁",
+      "source_refs": ["ch2_p2_87f95f45", "ch3_p2_3d978716"]
+    }
+  ],
+  "hook_candidates": [
+    {
+      "id": "hook_not_supposed_alive",
+      "description": "苏晚没有问林深为什么还活着，暗示三年前沉船另有隐情",
+      "why_it_hooks": "一句反常反应同时抛出生死谜题和旧关系悬念",
+      "suggested_episode_no": 1,
+      "source_refs": ["ch1_p2_cfaa58f1"]
+    },
+    {
+      "id": "hook_watch_coordinates",
+      "description": "旧怀表内侧刻着父亲失踪前留下的坐标",
+      "why_it_hooks": "道具明确、目标清晰，适合推动第二集开场",
+      "suggested_episode_no": 2,
+      "source_refs": ["ch2_p1_acbae21c"]
+    }
+  ],
+  "adaptation_warnings": [
+    "Demo 原文只有 6 个段落，短剧化时需要用动作和对白补足场面张力。",
+    "周砚只在后两章出现，规划时应提前让他的威胁感进入第二集。"
   ]
 }

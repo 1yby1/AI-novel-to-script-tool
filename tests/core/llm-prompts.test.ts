@@ -62,6 +62,8 @@ describe("prompts", () => {
     expect(joined).toContain("schema_version");
     expect(joined).toContain("main_goal");
     expect(joined).toContain("scene_plan");
+    expect(joined).toContain("每个生成场景应对应一条 scene_plan");
+    expect(joined).toContain("source_refs");
     expect(joined).toContain("purpose");
     expect(joined).toContain("emotional_shift");
   });

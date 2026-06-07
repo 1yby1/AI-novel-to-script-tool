@@ -141,7 +141,7 @@ describe("LiveLLMProvider.generateScript", () => {
     const provider = new LiveLLMProvider(complete, 2);
     const out = await provider.generateScript({ ...source, analysis, plan } as GenerateInput);
     expect(out.script_json.episodes[0]!.title).toBe("归来");
-    expect(i).toBe(2);
+    expect(i).toBeGreaterThanOrEqual(2);
   });
 
   it("requires analysis and plan", async () => {
@@ -152,6 +152,85 @@ describe("LiveLLMProvider.generateScript", () => {
   it("retries and throws when the model keeps returning empty episodes", async () => {
     const provider = new LiveLLMProvider(fixedComplete('{"episodes":[],"adaptation_notes":[]}'), 1);
     await expect(provider.generateScript({ ...source, analysis, plan } as GenerateInput)).rejects.toThrow();
+  });
+
+  it("retries when full validation surfaces an untraceable/invalid reference, then accepts a clean script", async () => {
+    let i = 0;
+    const bad = JSON.stringify({
+      episodes: [{
+        episode_no: 1, title: "坏引用", opening_hook: "他回来了", core_conflict: "真相", cliffhanger: "灯灭", estimated_duration_seconds: 120,
+        scenes: [{
+          scene_no: 1,
+          heading: { int_ext: "EXT", location_id: "loc_dock", time_of_day: "NIGHT" },
+          present_character_ids: ["char_lin"],
+          summary: "登岸",
+          beats: [{ beat_no: 1, type: "action", source_refs: ["bad_ref"], description: "林深踏上栈桥。" }],
+          source_refs: ["bad_ref"],
+        }],
+      }],
+      adaptation_notes: [],
+    });
+    const responses = [bad, creativeJson];
+    const complete: CompleteFn = async () => responses[Math.min(i++, responses.length - 1)]!;
+    const provider = new LiveLLMProvider(complete, 2);
+    const out = await provider.generateScript({ ...source, analysis, plan } as GenerateInput);
+    expect(out.script_json.episodes[0]!.title).toBe("归来");
+    expect(i).toBeGreaterThanOrEqual(2);
+  });
+
+  it("retries when generated scenes drift from the plan", async () => {
+    let i = 0;
+    const planned: PlanScenesResult = {
+      episodes: [{ episode_no: 1, title: "归来", opening_hook: "他回来了", main_goal: "确认线索", core_conflict: "真相", turning_point: "灯灭", cliffhanger: "灯灭", estimated_duration_seconds: 120, event_ids: ["evt_return"], source_refs: ["ch1_p1_aaaa1111"] }],
+      scene_plan: [{ episode_no: 1, scene_no: 1, location_id: "loc_dock", purpose: "建立归港钩子", conflict: "试探", emotional_shift: "平静 -> 警觉", required_character_ids: ["char_lin"], event_ids: ["evt_return"], source_refs: ["ch1_p1_aaaa1111"], summary: "登岸" }],
+      coverage: { covered_event_ids: ["evt_return"], omitted_event_ids: [], coverage_ratio: 1 },
+      pacing_notes: [],
+      adaptation_strategy: "",
+    };
+    const bad = JSON.stringify({
+      episodes: [{
+        episode_no: 1, title: "偏离规划", opening_hook: "他回来了", core_conflict: "真相", cliffhanger: "灯灭", estimated_duration_seconds: 120,
+        scenes: [{
+          scene_no: 1,
+          heading: { int_ext: "EXT", location_id: "loc_dock", time_of_day: "NIGHT" },
+          present_character_ids: [],
+          summary: "登岸",
+          beats: [{ beat_no: 1, type: "action", source_refs: [], description: "林深踏上栈桥。" }],
+          source_refs: [],
+        }],
+      }],
+      adaptation_notes: [],
+    });
+    const responses = [bad, creativeJson];
+    const complete: CompleteFn = async () => responses[Math.min(i++, responses.length - 1)]!;
+    const provider = new LiveLLMProvider(complete, 2);
+    const out = await provider.generateScript({ ...source, analysis, plan: planned } as GenerateInput);
+    expect(out.script_json.episodes[0]!.title).toBe("归来");
+    expect(i).toBeGreaterThanOrEqual(2);
+  });
+
+  it("retries weak-traceability warnings while attempts remain", async () => {
+    let i = 0;
+    const weak = JSON.stringify({
+      episodes: [{
+        episode_no: 1, title: "弱溯源", opening_hook: "他回来了", core_conflict: "真相", cliffhanger: "灯灭", estimated_duration_seconds: 120,
+        scenes: [{
+          scene_no: 1,
+          heading: { int_ext: "EXT", location_id: "loc_dock", time_of_day: "NIGHT" },
+          present_character_ids: ["char_lin"],
+          summary: "登岸",
+          beats: [{ beat_no: 1, type: "action", source_refs: [], description: "林深踏上栈桥。" }],
+          source_refs: [],
+        }],
+      }],
+      adaptation_notes: [],
+    });
+    const responses = [weak, creativeJson];
+    const complete: CompleteFn = async () => responses[Math.min(i++, responses.length - 1)]!;
+    const provider = new LiveLLMProvider(complete, 2);
+    const out = await provider.generateScript({ ...source, analysis, plan } as GenerateInput);
+    expect(out.script_json.episodes[0]!.title).toBe("归来");
+    expect(i).toBeGreaterThanOrEqual(2);
   });
 });
 

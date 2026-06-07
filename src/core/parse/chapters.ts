@@ -63,8 +63,8 @@ const CHAPTER_PATTERNS: RegExp[] = [
   /^第\s*[0-9０-９]+\s*[章回节卷]\s*(.*)$/,
   /^第\s*[一二三四五六七八九十百千零〇两]+\s*[章回节卷]\s*(.*)$/,
   /^Chapter\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten)\b\s*(.*)$/i,
-  /^[0-9０-９]+[、.．]\s*(.+)$/,
-  /^[一二三四五六七八九十百千零〇两]+[、.．]\s*(.+)$/,
+  /^[0-9０-９]+(?:、|[.．](?!\d))\s*(.+)$/,
+  /^[一二三四五六七八九十百千零〇两]+(?:、|[.．](?!\d))\s*(.+)$/,
 ];
 
 function cleanupTitle(raw: string): string {

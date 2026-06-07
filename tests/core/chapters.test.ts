@@ -97,8 +97,27 @@ describe("parseNovel", () => {
     expect(r.chapters.map((c) => c.title)).toEqual(["归港", "重逢", "抉择"]);
   });
 
-  it("does not mistake numbered prose for chapter headings", () => {
+  it("does not mistake a decimal-led line for a chapter heading", () => {
     const text = [
+      "第一章",
+      "",
+      "3.14 是圆周率的近似值，林深却觉得这个数字很重要",
+      "",
+      "第二章",
+      "",
+      "B",
+      "",
+      "第三章",
+      "",
+      "C",
+    ].join("\n");
+    const r = parseNovel(text);
+    expect(r.checks.detected_chapter_count).toBe(3);
+    expect(r.chapters).toHaveLength(3);
+    expect(r.source_paragraphs.some((p) => p.text.startsWith("3.14"))).toBe(true);
+  });
+
+  it("does not mistake numbered prose for chapter headings", () => {    const text = [
       "第一章",
       "",
       "1、这不是章节标题，而是一段很长的叙述，林深继续向前走，他没有停下。",

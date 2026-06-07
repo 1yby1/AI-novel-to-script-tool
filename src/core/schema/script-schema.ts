@@ -112,7 +112,7 @@ const Scene = z.looseObject({
   source_refs: z.array(z.string()),
 });
 
-const Episode = z.looseObject({
+export const EpisodeSchema = z.looseObject({
   episode_no: z.number().int().min(1),
   title: z.string(),
   opening_hook: z.string(),
@@ -148,7 +148,7 @@ export const ScriptSchema = z.looseObject({
   source_paragraphs: z.array(SourceParagraph),
   characters: z.array(Character),
   locations: z.array(Location),
-  episodes: z.array(Episode),
+  episodes: z.array(EpisodeSchema),
   adaptation_notes: z.array(AdaptationNote),
   quality_report: QualityReport,
 });

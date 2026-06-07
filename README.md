@@ -161,7 +161,7 @@ tests/         单元测试 + fixture 全链路集成测试
 - **分析/规划强化方案**：[`docs/superpowers/plans/2026-06-07-analysis-planning-v2.md`](docs/superpowers/plans/2026-06-07-analysis-planning-v2.md)
 - **生成校验与错误回灌方案**：[`docs/superpowers/plans/2026-06-07-generation-validation-feedback.md`](docs/superpowers/plans/2026-06-07-generation-validation-feedback.md)
 - **解析边界与 TXT 上传方案**：[`docs/superpowers/plans/2026-06-07-parse-boundaries-txt-upload.md`](docs/superpowers/plans/2026-06-07-parse-boundaries-txt-upload.md)
-- **Demo 视频**：_（录制后填入链接）_
+- **Demo 视频**：[https://www.bilibili.com/video/BV1FeEt6bEU8/?vd_source=3dae74fbac0314e7e16fcf88ce76fcaf](https://www.bilibili.com/video/BV1FeEt6bEU8/?vd_source=3dae74fbac0314e7e16fcf88ce76fcaf)
 
 ---
 

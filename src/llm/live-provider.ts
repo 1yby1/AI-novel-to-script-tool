@@ -22,6 +22,21 @@ import type {
 } from "./provider";
 
 type Role = AnalyzeResult["characters"][number]["role"];
+type LiveProviderStage = "analyze" | "plan-scenes" | "generate-script";
+type LiveProviderAttemptEvent = "start" | "model_response" | "retry" | "success" | "error";
+
+export interface LiveProviderAttemptLog {
+  stage: LiveProviderStage;
+  event: LiveProviderAttemptEvent;
+  attempt: number;
+  maxAttempts: number;
+  message_count?: number;
+  elapsed_ms?: number;
+  output_chars?: number;
+  reason?: string;
+}
+
+export type LiveProviderAttemptLogger = (event: LiveProviderAttemptLog) => void;
 
 function asStr(v: unknown): string {
   return typeof v === "string" ? v : "";
@@ -50,8 +65,67 @@ function uniqueSafeId(id: string, prefix: string, index: number, seen: Set<strin
   return candidate;
 }
 
+function summarizeAttemptReason(reason: unknown): string {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  const compact = message.replace(/\s+/g, " ").trim();
+  return compact.length > 500 ? `${compact.slice(0, 497)}...` : compact;
+}
+
+function defaultAttemptLogger(event: LiveProviderAttemptLog): void {
+  if (process.env.VITEST || process.env.NODE_ENV === "test") return;
+  const parts = [
+    `stage=${event.stage}`,
+    `event=${event.event}`,
+    `attempt=${event.attempt}/${event.maxAttempts}`,
+  ];
+  if (event.message_count !== undefined) parts.push(`messages=${event.message_count}`);
+  if (event.elapsed_ms !== undefined) parts.push(`elapsed_ms=${event.elapsed_ms}`);
+  if (event.output_chars !== undefined) parts.push(`output_chars=${event.output_chars}`);
+  if (event.reason) parts.push(`reason="${event.reason}"`);
+  console.info(`[live-provider] ${parts.join(" ")}`);
+}
+
 export class LiveLLMProvider implements ScriptProvider {
-  constructor(private readonly complete: CompleteFn, private readonly maxRetries = 2) {}
+  constructor(
+    private readonly complete: CompleteFn,
+    private readonly maxRetries = 2,
+    private readonly attemptLogger: LiveProviderAttemptLogger = defaultAttemptLogger,
+  ) {}
+
+  private logAttempt(stage: LiveProviderStage, event: LiveProviderAttemptEvent, attempt: number, details: Omit<LiveProviderAttemptLog, "stage" | "event" | "attempt" | "maxAttempts"> = {}): void {
+    this.attemptLogger({
+      stage,
+      event,
+      attempt,
+      maxAttempts: this.maxRetries + 1,
+      ...details,
+    });
+  }
+
+  private async completeAttempt(stage: LiveProviderStage, messages: ChatMessage[], attempt: number, attemptStartedAt: number): Promise<string> {
+    this.logAttempt(stage, "start", attempt, { message_count: messages.length });
+    try {
+      const raw = await this.complete(messages);
+      this.logAttempt(stage, "model_response", attempt, {
+        elapsed_ms: Date.now() - attemptStartedAt,
+        output_chars: raw.length,
+      });
+      return raw;
+    } catch (e) {
+      this.logAttempt(stage, "error", attempt, {
+        elapsed_ms: Date.now() - attemptStartedAt,
+        reason: summarizeAttemptReason(e),
+      });
+      throw e;
+    }
+  }
+
+  private logAttemptRetry(stage: LiveProviderStage, attempt: number, attemptStartedAt: number, reason: string): void {
+    this.logAttempt(stage, "retry", attempt, {
+      elapsed_ms: Date.now() - attemptStartedAt,
+      reason: summarizeAttemptReason(reason),
+    });
+  }
 
   async analyze(input: AnalyzeInput): Promise<AnalyzeResult> {
     const paragraphs = input.source_paragraphs ?? [];
@@ -64,6 +138,11 @@ export class LiveLLMProvider implements ScriptProvider {
       schema: RawAnalyzeSchema,
       label: "analyze",
       maxRetries: this.maxRetries,
+      onAttemptStart: (attempt, _maxAttempts, messageCount) => this.logAttempt("analyze", "start", attempt, { message_count: messageCount }),
+      onAttemptComplete: (attempt, elapsedMs, outputChars) => this.logAttempt("analyze", "model_response", attempt, { elapsed_ms: elapsedMs, output_chars: outputChars }),
+      onAttemptRetry: (attempt, elapsedMs, reason) => this.logAttempt("analyze", "retry", attempt, { elapsed_ms: elapsedMs, reason: summarizeAttemptReason(reason) }),
+      onAttemptSuccess: (attempt, elapsedMs) => this.logAttempt("analyze", "success", attempt, { elapsed_ms: elapsedMs }),
+      onAttemptError: (attempt, elapsedMs, error) => this.logAttempt("analyze", "error", attempt, { elapsed_ms: elapsedMs, reason: summarizeAttemptReason(error) }),
     });
 
     const chars = normalizeEntities("char", raw.characters as RawEntity[]);
@@ -154,18 +233,22 @@ export class LiveLLMProvider implements ScriptProvider {
     const messages: ChatMessage[] = [...buildPlanMessages(input, analysis)];
     let lastError = "";
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-      const rawText = await this.complete(messages);
+      const attemptNumber = attempt + 1;
+      const attemptStartedAt = Date.now();
+      const rawText = await this.completeAttempt("plan-scenes", messages, attemptNumber, attemptStartedAt);
       let parsed: unknown;
       try {
         parsed = JSON.parse(extractJson(rawText));
       } catch (e) {
         lastError = `JSON 解析失败：${e instanceof Error ? e.message : String(e)}`;
+        this.logAttemptRetry("plan-scenes", attemptNumber, attemptStartedAt, lastError);
         messages.push({ role: "assistant", content: rawText }, { role: "user", content: `${lastError}。只返回合法 JSON。` });
         continue;
       }
       const result = PlanSchema.safeParse(parsed);
       if (!result.success) {
         lastError = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+        this.logAttemptRetry("plan-scenes", attemptNumber, attemptStartedAt, lastError);
         messages.push({ role: "assistant", content: rawText }, { role: "user", content: `分集/分场规划结构不合法：${lastError}。请修正后只返回合法 JSON。` });
         continue;
       }
@@ -174,8 +257,12 @@ export class LiveLLMProvider implements ScriptProvider {
         coverage: normalizePlanCoverage(result.data as PlanScenesResult, analysis),
       } as PlanScenesResult;
       const consistencyErrors = findPlanConsistencyErrors(plan, analysis, input);
-      if (consistencyErrors.length === 0) return plan;
+      if (consistencyErrors.length === 0) {
+        this.logAttempt("plan-scenes", "success", attemptNumber, { elapsed_ms: Date.now() - attemptStartedAt });
+        return plan;
+      }
       lastError = consistencyErrors.join("; ");
+      this.logAttemptRetry("plan-scenes", attemptNumber, attemptStartedAt, lastError);
       messages.push(
         { role: "assistant", content: rawText },
         { role: "user", content: `规划引用了不存在的 ID：${lastError}。只能使用给定 event_ids、character_ids、location_ids 和 source_refs。` },
@@ -191,12 +278,15 @@ export class LiveLLMProvider implements ScriptProvider {
     const messages: ChatMessage[] = [...buildGenerateMessages(input, analysis, plan)];
     let lastError = "";
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-      const raw = await this.complete(messages);
+      const attemptNumber = attempt + 1;
+      const attemptStartedAt = Date.now();
+      const raw = await this.completeAttempt("generate-script", messages, attemptNumber, attemptStartedAt);
       let partial: unknown;
       try {
         partial = JSON.parse(extractJson(raw));
       } catch (e) {
         lastError = `JSON 解析失败：${e instanceof Error ? e.message : String(e)}`;
+        this.logAttemptRetry("generate-script", attemptNumber, attemptStartedAt, lastError);
         messages.push({ role: "assistant", content: raw }, { role: "user", content: `${lastError}。只返回合法 JSON。` });
         continue;
       }
@@ -204,6 +294,7 @@ export class LiveLLMProvider implements ScriptProvider {
       const schemaResult = ScriptSchema.safeParse(assembled);
       if (!schemaResult.success) {
         lastError = schemaResult.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ");
+        this.logAttemptRetry("generate-script", attemptNumber, attemptStartedAt, lastError);
         messages.push(
           { role: "assistant", content: raw },
           { role: "user", content: `剧本结构不合法：${lastError}。请修正 episodes/beats 后只返回合法 JSON（仅 episodes 与 adaptation_notes）。` },
@@ -212,6 +303,7 @@ export class LiveLLMProvider implements ScriptProvider {
       }
       if (schemaResult.data.episodes.length === 0) {
         lastError = "episodes 为空";
+        this.logAttemptRetry("generate-script", attemptNumber, attemptStartedAt, lastError);
         messages.push(
           { role: "assistant", content: raw },
           { role: "user", content: "episodes 不能为空，请至少生成一集（含场景与 beats）。只返回合法 json。" },
@@ -229,6 +321,7 @@ export class LiveLLMProvider implements ScriptProvider {
       const hardFindings = [...validation.errors, ...planFindings];
       if (hardFindings.length > 0) {
         lastError = formatGenerationFeedback(hardFindings);
+        this.logAttemptRetry("generate-script", attemptNumber, attemptStartedAt, lastError);
         messages.push(
           { role: "assistant", content: raw },
           { role: "user", content: `生成结果未通过确定性校验，请按路径修正后只返回合法 JSON（仅 episodes 与 adaptation_notes）：\n${lastError}` },
@@ -236,9 +329,18 @@ export class LiveLLMProvider implements ScriptProvider {
         continue;
       }
 
+      const repairedRefs = validation.quality_report?.repaired_refs ?? [];
       const warningFindings = retryableWarnings(validation.warnings);
-      if (warningFindings.length > 0 && attempt < this.maxRetries) {
-        lastError = formatGenerationFeedback(warningFindings);
+      if ((repairedRefs.length > 0 || warningFindings.length > 0) && attempt < this.maxRetries) {
+        const feedbackParts: string[] = [];
+        if (repairedRefs.length > 0) {
+          feedbackParts.push(`以下 source_refs 不存在、已被自动剔除，请改用合法段落 ID 重新引用：${repairedRefs.join(", ")}`);
+        }
+        if (warningFindings.length > 0) {
+          feedbackParts.push(formatGenerationFeedback(warningFindings));
+        }
+        lastError = feedbackParts.join("\n");
+        this.logAttemptRetry("generate-script", attemptNumber, attemptStartedAt, lastError);
         messages.push(
           { role: "assistant", content: raw },
           { role: "user", content: `生成结果可解析但质量不足，请增强 source_refs、开场钩子、结尾悬念与规划一致性后只返回合法 JSON（仅 episodes 与 adaptation_notes）：\n${lastError}` },
@@ -247,6 +349,7 @@ export class LiveLLMProvider implements ScriptProvider {
       }
 
       const finalScript = validatedScript ?? schemaResult.data;
+      this.logAttempt("generate-script", "success", attemptNumber, { elapsed_ms: Date.now() - attemptStartedAt });
       return { script_json: finalScript, script_yaml: scriptToYaml(finalScript) };
     }
     throw new Error(`live 生成在 ${this.maxRetries + 1} 次尝试后仍未产出合法剧本：${lastError}`);

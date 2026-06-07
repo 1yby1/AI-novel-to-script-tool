@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { LiveLLMProvider } from "../../src/llm/live-provider";
+import { LiveLLMProvider, type LiveProviderAttemptLog } from "../../src/llm/live-provider";
 import type { CompleteFn } from "../../src/llm/json-llm";
 import type { AnalyzeInput, AnalyzeResult, GenerateInput, PlanInput, PlanScenesResult } from "../../src/llm/provider";
 
@@ -144,6 +144,31 @@ describe("LiveLLMProvider.generateScript", () => {
     expect(i).toBeGreaterThanOrEqual(2);
   });
 
+  it("logs generate attempt timings and retry reasons", async () => {
+    let i = 0;
+    const events: LiveProviderAttemptLog[] = [];
+    const responses = ['{"episodes":[{"episode_no":1}],"adaptation_notes":[]}', creativeJson];
+    const complete: CompleteFn = async () => responses[Math.min(i++, responses.length - 1)]!;
+    const provider = new LiveLLMProvider(complete, 1, (event) => events.push(event));
+
+    const out = await provider.generateScript({ ...source, analysis, plan } as GenerateInput);
+
+    expect(out.script_json.episodes[0]!.title).toBe("归来");
+    expect(events.map((event) => event.event)).toEqual([
+      "start",
+      "model_response",
+      "retry",
+      "start",
+      "model_response",
+      "success",
+    ]);
+    expect(events[0]).toMatchObject({ stage: "generate-script", attempt: 1, maxAttempts: 2 });
+    expect(events[1]?.elapsed_ms).toBeGreaterThanOrEqual(0);
+    expect(events[1]?.output_chars).toBeGreaterThan(0);
+    expect(events[2]?.reason).toContain("episodes.0.title");
+    expect(events[5]).toMatchObject({ stage: "generate-script", attempt: 2, maxAttempts: 2 });
+  });
+
   it("requires analysis and plan", async () => {
     const provider = new LiveLLMProvider(fixedComplete(creativeJson));
     await expect(provider.generateScript({ ...source } as GenerateInput)).rejects.toThrow();
@@ -231,6 +256,34 @@ describe("LiveLLMProvider.generateScript", () => {
     const out = await provider.generateScript({ ...source, analysis, plan } as GenerateInput);
     expect(out.script_json.episodes[0]!.title).toBe("归来");
     expect(i).toBeGreaterThanOrEqual(2);
+  });
+
+  it("feeds repaired (invalid) source_refs back to the model instead of silently dropping them", async () => {
+    let i = 0;
+    const mixed = JSON.stringify({
+      episodes: [{
+        episode_no: 1, title: "混合引用", opening_hook: "他回来了", core_conflict: "真相", cliffhanger: "灯灭", estimated_duration_seconds: 120,
+        scenes: [{
+          scene_no: 1,
+          heading: { int_ext: "EXT", location_id: "loc_dock", time_of_day: "NIGHT" },
+          present_character_ids: ["char_lin"],
+          summary: "登岸",
+          beats: [{ beat_no: 1, type: "action", source_refs: ["ch1_p1_aaaa1111", "bad_ref"], description: "林深踏上栈桥。" }],
+          source_refs: ["ch1_p1_aaaa1111", "bad_ref"],
+        }],
+      }],
+      adaptation_notes: [],
+    });
+    const responses = [mixed, creativeJson];
+    const seenPrompts: string[] = [];
+    const complete: CompleteFn = async (msgs) => {
+      seenPrompts.push(msgs.map((m) => m.content).join("\n"));
+      return responses[Math.min(i++, responses.length - 1)]!;
+    };
+    // Scene keeps the valid ref → stays traceable (no WEAK_TRACEABILITY), so only the
+    // repaired-ref feedback can surface the stripped "bad_ref" on a retry prompt.
+    await new LiveLLMProvider(complete, 2).generateScript({ ...source, analysis, plan } as GenerateInput);
+    expect(seenPrompts.slice(1).join("\n")).toContain("bad_ref");
   });
 });
 

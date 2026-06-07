@@ -295,6 +295,12 @@ export default function WorkbenchPage() {
     }
     try {
       const text = (await file.text()).replace(/^\uFEFF/, "");
+      // file.text() always decodes as UTF-8; a GBK/GB18030 novel (very common for Chinese text)
+      // decodes to U+FFFD replacement chars. Reject rather than feed mojibake into the pipeline.
+      if (text.includes("\uFFFD")) {
+        setMessage({ type: "error", text: "TXT \u4F3C\u4E4E\u4E0D\u662F UTF-8 \u7F16\u7801\uFF08\u51FA\u73B0\u4E71\u7801\uFF09\u3002\u8BF7\u7528\u8BB0\u4E8B\u672C\u300C\u53E6\u5B58\u4E3A\u300D\u65F6\u628A\u7F16\u7801\u9009\u4E3A UTF-8 \u540E\u91CD\u8BD5\u3002" });
+        return;
+      }
       setNovelText(text);
       setParseResult(null);
       resetDownstream();
@@ -808,7 +814,7 @@ export default function WorkbenchPage() {
           ))}
         </div>
         <div className="inspector-block">
-          <h3>Beat 列表</h3>
+          <h3>Beat 列表{beatRows.length > 18 ? `（前 18 / 共 ${beatRows.length}）` : ""}</h3>
           {beatRows.length > 0 ? (
             <div className="compact-list">
               {beatRows.slice(0, 18).map((row) => {

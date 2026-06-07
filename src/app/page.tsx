@@ -4,6 +4,8 @@ import { useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  Clapperboard,
+  Code2,
   Download,
   FileText,
   Gauge,
@@ -211,6 +213,9 @@ function sourceParagraphIds(parseResult: ParseResult | null): string[] {
   return parseResult?.source_paragraphs.map((p) => p.id) ?? [];
 }
 
+type StageKey = "source" | "parse" | "analyze" | "plan" | "script" | "storyboard";
+type InspectorTab = "trace" | "quality" | "warnings" | "validation";
+
 export default function WorkbenchPage() {
   const [novelText, setNovelText] = useState("");
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
@@ -221,6 +226,8 @@ export default function WorkbenchPage() {
   const [scriptJson, setScriptJson] = useState<Script | null>(null);
   const [traceParaIds, setTraceParaIds] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [activeStage, setActiveStage] = useState<StageKey>("source");
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("trace");
   const [message, setMessage] = useState<{ type: "info" | "error"; text: string } | null>({
     type: "info",
     text: "离线 Demo 模式（无需 API Key）",
@@ -240,6 +247,14 @@ export default function WorkbenchPage() {
     return validation.valid ? "校验通过" : "需要修正";
   }, [analysis, parseResult, plan, validation, yamlText]);
 
+  const beatRows = useMemo(() => (scriptJson ? flattenBeats(scriptJson) : []), [scriptJson]);
+  const selectedParagraphs = useMemo(() => {
+    if (!parseResult) return [];
+    return traceParaIds
+      .map((id) => parseResult.source_paragraphs.find((p) => p.id === id))
+      .filter((p): p is SourceParagraph => Boolean(p));
+  }, [parseResult, traceParaIds]);
+
   function resetDownstream() {
     setAnalysis(null);
     setPlan(null);
@@ -258,6 +273,7 @@ export default function WorkbenchPage() {
       setNovelText(data.text);
       setParseResult(null);
       resetDownstream();
+      setActiveStage("source");
       setMessage({ type: "info", text: "已载入内置 Demo 小说" });
     } catch (e) {
       setMessage({ type: "error", text: e instanceof Error ? e.message : String(e) });
@@ -278,10 +294,11 @@ export default function WorkbenchPage() {
       return;
     }
     try {
-      const text = (await file.text()).replace(/^﻿/, "");
+      const text = (await file.text()).replace(/^\uFEFF/, "");
       setNovelText(text);
       setParseResult(null);
       resetDownstream();
+      setActiveStage("source");
       setMessage({ type: "info", text: `已载入 TXT：${file.name}` });
     } catch (error) {
       setMessage({ type: "error", text: error instanceof Error ? error.message : "TXT 读取失败。" });
@@ -297,6 +314,7 @@ export default function WorkbenchPage() {
       const sourceChanged = data.source_fingerprint !== parseResult?.source_fingerprint;
       setParseResult(data);
       if (sourceChanged) resetDownstream();
+      setActiveStage("parse");
       setMessage({
         type: data.checks.meets_minimum_chapters ? "info" : "error",
         text: data.checks.meets_minimum_chapters
@@ -320,6 +338,7 @@ export default function WorkbenchPage() {
         text: novelText,
       });
       setAnalysis(data);
+      setActiveStage("analyze");
       setPlan(null);
       setYamlText("");
       setValidation(null);
@@ -342,6 +361,7 @@ export default function WorkbenchPage() {
         analysis,
       });
       setPlan(data);
+      setActiveStage("plan");
       setYamlText("");
       setValidation(null);
       setScriptJson(null);
@@ -366,6 +386,8 @@ export default function WorkbenchPage() {
       setYamlText(data.script_yaml);
       setValidation(data.validation_result);
       setScriptJson(data.script_json);
+      setActiveStage("script");
+      setInspectorTab(data.validation_result.valid ? "quality" : "validation");
       setMessage({
         type: data.validation_result.valid ? "info" : "error",
         text: data.validation_result.valid ? "已生成可编辑 YAML 初稿" : "已生成，但存在校验错误",
@@ -387,6 +409,8 @@ export default function WorkbenchPage() {
       });
       setValidation(data);
       setScriptJson(data.script ?? null);
+      setActiveStage("script");
+      setInspectorTab(data.valid ? "quality" : "validation");
       setMessage({ type: data.valid ? "info" : "error", text: data.valid ? "YAML 校验通过" : "YAML 存在错误" });
     } catch (e) {
       setMessage({ type: "error", text: e instanceof Error ? e.message : String(e) });
@@ -398,6 +422,525 @@ export default function WorkbenchPage() {
   const isBusy = busy !== null;
   const spinner = (action: string, Icon: typeof FileText) =>
     busy === action ? <Loader2 className="spin" size={15} /> : <Icon size={15} />;
+
+  const parseState = parseResult ? (parseResult.checks.meets_minimum_chapters ? "done" : "warn") : "idle";
+  const analysisCount = (analysis?.characters.length ?? 0) + (analysis?.locations.length ?? 0);
+  const validationIssueCount = (validation?.errors.length ?? 0) + (validation?.warnings.length ?? 0);
+  const stageItems: Array<{
+    key: StageKey;
+    title: string;
+    description: string;
+    meta: string;
+    state: "idle" | "done" | "warn" | "locked";
+    Icon: typeof FileText;
+    disabled?: boolean;
+  }> = [
+    {
+      key: "source",
+      title: "原文输入",
+      description: "粘贴或上传小说",
+      meta: novelText.trim().length > 0 ? `${novelText.length} 字` : "等待文本",
+      state: novelText.trim().length > 0 ? "done" : "idle",
+      Icon: FileText,
+    },
+    {
+      key: "parse",
+      title: "解析",
+      description: "章节 / 段落 / 指纹",
+      meta: parseResult ? `${parseResult.stats.chapter_count} 章 · ${parseResult.stats.paragraph_count} 段` : "未运行",
+      state: parseState,
+      Icon: SearchCheck,
+    },
+    {
+      key: "analyze",
+      title: "分析",
+      description: "人物 / 事件 / 冲突",
+      meta: analysis ? `${analysisCount} 实体 · ${analysis.key_events.length} 事件` : "未运行",
+      state: analysis ? "done" : "idle",
+      Icon: ListChecks,
+    },
+    {
+      key: "plan",
+      title: "规划",
+      description: "集 / 场 / 覆盖率",
+      meta: plan ? `${plan.episodes.length} 集 · ${plan.scene_plan.length} 场` : "未运行",
+      state: plan ? "done" : "idle",
+      Icon: GitBranch,
+    },
+    {
+      key: "script",
+      title: "剧本",
+      description: "YAML / 校验 / 导出",
+      meta: validation ? (validation.valid ? "校验通过" : `${validationIssueCount} 个问题`) : yamlText ? "待校验" : "未生成",
+      state: validation ? (validation.valid ? "done" : "warn") : yamlText ? "done" : "idle",
+      Icon: Code2,
+    },
+    {
+      key: "storyboard",
+      title: "分镜",
+      description: "Shot list 预留",
+      meta: "下一阶段",
+      state: "locked",
+      Icon: Clapperboard,
+      disabled: true,
+    },
+  ];
+  const activeStageItem = stageItems.find((item) => item.key === activeStage) ?? stageItems[0]!;
+
+  function renderSourceStage() {
+    return (
+      <div className="stage-grid source-stage">
+        <div className="stage-toolbar">
+          <input
+            ref={txtInputRef}
+            type="file"
+            accept=".txt,text/plain"
+            hidden
+            onChange={(event) => {
+              void loadTxtFile(event.target.files?.[0] ?? null);
+              event.currentTarget.value = "";
+            }}
+          />
+          <button className="btn" disabled={isBusy} onClick={() => txtInputRef.current?.click()}>
+            <Upload size={15} />
+            上传 TXT
+          </button>
+          <button className="btn" disabled={isBusy} onClick={loadDemo}>
+            {spinner("demo", RefreshCw)}
+            载入 Demo
+          </button>
+          <button className="btn primary" disabled={isBusy || novelText.trim().length === 0} onClick={runParse}>
+            {spinner("parse", SearchCheck)}
+            解析原文
+          </button>
+        </div>
+        <textarea
+          aria-label="小说原文"
+          className="source-editor"
+          placeholder="粘贴 3 章以上小说文本，或上传 UTF-8 TXT。解析后会生成稳定段落 ID 与原文指纹。"
+          value={novelText}
+          onChange={(event) => {
+            setNovelText(event.target.value);
+            setParseResult(null);
+            resetDownstream();
+          }}
+        />
+      </div>
+    );
+  }
+
+  function renderParseStage() {
+    if (!parseResult) {
+      return (
+        <div className="empty-state">
+          <SearchCheck size={28} />
+          <h3>还没有解析结果</h3>
+          <p>先在原文输入阶段载入 3 章以上文本，再运行解析。</p>
+          <button className="btn primary" disabled={isBusy || novelText.trim().length === 0} onClick={runParse}>
+            {spinner("parse", SearchCheck)}
+            解析原文
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="stage-grid">
+        <div className="summary-strip">
+          <div><strong>{parseResult.stats.chapter_count}</strong><span>章节</span></div>
+          <div><strong>{parseResult.stats.paragraph_count}</strong><span>段落</span></div>
+          <div><strong>{parseResult.stats.character_count}</strong><span>字数</span></div>
+          <div><strong>{parseResult.warnings.length}</strong><span>提示</span></div>
+        </div>
+        {parseResult.warnings.length > 0 ? (
+          <div className="inline-findings">
+            {parseResult.warnings.map((warning, index) => (
+              <div className="finding warning" key={`${warning.code}-${warning.path ?? index}`}>
+                <strong>{warning.code}</strong>
+                <span>{warning.message}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        <div className="section-heading">
+          <h3>原文段落</h3>
+          <button className="btn" disabled={isBusy || !canRun} onClick={runAnalyze}>
+            {spinner("analyze", ListChecks)}
+            进入分析
+          </button>
+        </div>
+        <div className="stage-list paragraph-list">
+          {parseResult.source_paragraphs.map((p) => (
+            <button
+              className={`row-button${traceParaIds.includes(p.id) ? " trace" : ""}`}
+              id={`para-${p.id}`}
+              key={p.id}
+              onClick={() => {
+                setTraceParaIds([p.id]);
+                setInspectorTab("trace");
+              }}
+            >
+              <span className="row-title">
+                <span>{p.chapter_id} / 第{p.paragraph_index}段</span>
+                <span className="code">{p.id}</span>
+              </span>
+              <span className="row-text">{p.text ?? p.text_preview}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  function renderAnalyzeStage() {
+    if (!analysis) {
+      return (
+        <div className="empty-state">
+          <ListChecks size={28} />
+          <h3>等待分析</h3>
+          <p>分析会抽取人物、地点、事件卡、冲突卡和钩子候选。</p>
+          <button className="btn primary" disabled={isBusy || !canRun} onClick={runAnalyze}>
+            {spinner("analyze", ListChecks)}
+            开始分析
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="stage-grid">
+        <div className="summary-strip">
+          <div><strong>{analysis.characters.length}</strong><span>人物</span></div>
+          <div><strong>{analysis.locations.length}</strong><span>地点</span></div>
+          <div><strong>{analysis.key_events.length}</strong><span>事件</span></div>
+          <div><strong>{analysis.hook_candidates.length}</strong><span>钩子</span></div>
+        </div>
+        <div className="section-heading">
+          <h3>人物与地点</h3>
+          <button className="btn" disabled={isBusy || !analysis} onClick={runPlan}>
+            {spinner("plan", GitBranch)}
+            进入规划
+          </button>
+        </div>
+        <div className="entity-grid">
+          {[...analysis.characters, ...analysis.locations].map((item) => (
+            <div className="data-card" key={item.id}>
+              <div className="data-card-title">
+                <strong>{item.name}</strong>
+                <span className="code">{item.id}</span>
+              </div>
+              <p>{"motivation" in item ? item.motivation : item.description}</p>
+            </div>
+          ))}
+        </div>
+        <div className="section-heading">
+          <h3>事件 · 冲突 · 钩子</h3>
+        </div>
+        <div className="stage-list">
+          {analysis.key_events.map((event) => (
+            <div className="data-row" key={event.id}>
+              <div className="data-card-title">
+                <strong>{event.summary}</strong>
+                <span className="code">{event.id}</span>
+              </div>
+              <p>{event.dramatic_function} · {event.source_refs.join(", ")}</p>
+            </div>
+          ))}
+          {analysis.conflicts.map((conflict) => (
+            <div className="data-row" key={conflict.id}>
+              <div className="data-card-title">
+                <strong>{conflict.surface_conflict}</strong>
+                <span className="code">{conflict.id}</span>
+              </div>
+              <p>{conflict.stakes}</p>
+            </div>
+          ))}
+          {analysis.hook_candidates.map((hook) => (
+            <div className="data-row" key={hook.id}>
+              <div className="data-card-title">
+                <strong>{hook.description}</strong>
+                <span className="code">{hook.id}</span>
+              </div>
+              <p>{hook.why_it_hooks}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  function renderPlanStage() {
+    if (!plan) {
+      return (
+        <div className="empty-state">
+          <GitBranch size={28} />
+          <h3>等待规划</h3>
+          <p>规划会把事件卡转成集目标、场景目的、冲突和情绪转折。</p>
+          <button className="btn primary" disabled={isBusy || !analysis} onClick={runPlan}>
+            {spinner("plan", GitBranch)}
+            生成规划
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="stage-grid">
+        <div className="summary-strip">
+          <div><strong>{plan.episodes.length}</strong><span>集</span></div>
+          <div><strong>{plan.scene_plan.length}</strong><span>场</span></div>
+          <div><strong>{Math.round(plan.coverage.coverage_ratio * 100)}%</strong><span>事件覆盖</span></div>
+          <div><strong>{plan.pacing_notes.length}</strong><span>节奏提示</span></div>
+        </div>
+        <div className="section-heading">
+          <h3>短剧集结构</h3>
+          <button className="btn success" disabled={isBusy || !plan || !canRun} onClick={runGenerate}>
+            {spinner("generate", Wand2)}
+            生成剧本
+          </button>
+        </div>
+        <div className="episode-strip">
+          {plan.episodes.map((episode) => (
+            <div className="episode-card" key={episode.episode_no}>
+              <span>第{episode.episode_no}集</span>
+              <strong>{episode.title}</strong>
+              <p>{episode.opening_hook}</p>
+            </div>
+          ))}
+        </div>
+        <div className="section-heading">
+          <h3>分场规划</h3>
+        </div>
+        <div className="stage-list">
+          {plan.scene_plan.map((scene) => (
+            <div className="data-row" key={`${scene.episode_no}-${scene.scene_no}`}>
+              <div className="data-card-title">
+                <strong>第{scene.episode_no}集 · 第{scene.scene_no}场</strong>
+                <span className="code">{scene.location_id}</span>
+              </div>
+              <p>{scene.purpose}</p>
+              <p>{scene.conflict} · {scene.emotional_shift}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  function renderScriptStage() {
+    return (
+      <div className="stage-grid script-stage">
+        <div className="stage-toolbar">
+          <button className="btn success" disabled={isBusy || !plan || !canRun} onClick={runGenerate}>
+            {spinner("generate", Wand2)}
+            重新生成
+          </button>
+          <button className="btn primary" disabled={isBusy || yamlText.trim().length === 0} onClick={runValidate}>
+            {spinner("validate", Play)}
+            校验 YAML
+          </button>
+          <button className="btn" disabled={yamlText.trim().length === 0} onClick={() => downloadFile("script.yaml", yamlText)}>
+            <Download size={15} />
+            YAML
+          </button>
+          <button className="btn" disabled={!scriptJson} onClick={() => scriptJson && downloadFile("script.json", JSON.stringify(scriptJson, null, 2))}>
+            <Download size={15} />
+            JSON
+          </button>
+          <button className="btn" disabled={!scriptJson} onClick={() => scriptJson && downloadFile("adaptation-report.md", buildAdaptationReport(scriptJson))}>
+            <Download size={15} />
+            报告
+          </button>
+        </div>
+        <div className="summary-strip">
+          <div><strong>{scriptJson?.episodes.length ?? 0}</strong><span>集</span></div>
+          <div><strong>{scriptJson?.episodes.reduce((sum, ep) => sum + ep.scenes.length, 0) ?? 0}</strong><span>场</span></div>
+          <div><strong>{beatRows.length}</strong><span>beats</span></div>
+          <div><strong>{quality ? `${Math.round(quality.source_coverage_ratio * 100)}%` : "--"}</strong><span>覆盖率</span></div>
+        </div>
+        <textarea
+          aria-label="剧本 YAML"
+          className="yaml-editor"
+          placeholder="生成后这里会出现可编辑的 YAML 剧本，改完点“校验 YAML”。"
+          value={yamlText}
+          onChange={(event) => setYamlText(event.target.value)}
+        />
+      </div>
+    );
+  }
+
+  function renderStoryboardStage() {
+    return (
+      <div className="empty-state">
+        <Clapperboard size={28} />
+        <h3>分镜阶段预留</h3>
+        <p>这里后续可以承接 shot list、视频模型 prompt pack 和镜头级追溯。</p>
+      </div>
+    );
+  }
+
+  function renderStage() {
+    if (activeStage === "source") return renderSourceStage();
+    if (activeStage === "parse") return renderParseStage();
+    if (activeStage === "analyze") return renderAnalyzeStage();
+    if (activeStage === "plan") return renderPlanStage();
+    if (activeStage === "script") return renderScriptStage();
+    return renderStoryboardStage();
+  }
+
+  function renderTraceInspector() {
+    return (
+      <>
+        <div className="inspector-block">
+          <h3>当前追溯</h3>
+          {traceParaIds.length > 0 ? (
+            <div className="chips">
+              {traceParaIds.map((id) => <span className="code chip" key={id}>{id}</span>)}
+            </div>
+          ) : (
+            <p className="muted">点选段落或 beat 后，这里会显示对应原文。</p>
+          )}
+          {selectedParagraphs.map((p) => (
+            <div className="trace-card" key={p.id}>
+              <strong>{p.chapter_id} / 第{p.paragraph_index}段</strong>
+              <p>{p.text ?? p.text_preview}</p>
+            </div>
+          ))}
+        </div>
+        <div className="inspector-block">
+          <h3>Beat 列表</h3>
+          {beatRows.length > 0 ? (
+            <div className="compact-list">
+              {beatRows.slice(0, 18).map((row) => {
+                const hit = row.source_refs.some((ref) => traceParaIds.includes(ref));
+                return (
+                  <button
+                    className={`compact-row${hit ? " trace" : ""}`}
+                    key={row.key}
+                    onClick={() => {
+                      setTraceParaIds(row.source_refs);
+                      setInspectorTab("trace");
+                      const first = row.source_refs[0];
+                      if (first) document.getElementById(`para-${first}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+                    }}
+                  >
+                    <strong>{row.label}</strong>
+                    <span>{row.preview}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="muted">生成剧本后可查看 beat 与原文引用。</p>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  function renderQualityInspector() {
+    return (
+      <div className="inspector-block">
+        <h3>质量报告</h3>
+        {quality ? (
+          <>
+            <div className="quality-grid">
+              <div><strong>{Math.round(quality.source_coverage_ratio * 100)}%</strong><span>原文覆盖率</span></div>
+              <div><strong>{quality.referenced_paragraph_count}/{quality.total_paragraph_count}</strong><span>引用段落</span></div>
+              <div><strong>{quality.untraceable_scenes.length}</strong><span>无溯源场景</span></div>
+            </div>
+            {quality.manual_review_suggestions.length > 0 ? (
+              <div className="compact-list">
+                {quality.manual_review_suggestions.map((suggestion, index) => (
+                  <div className="finding" key={index}>{suggestion}</div>
+                ))}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <p className="muted">生成或校验后会显示覆盖率、引用段落和人工复核建议。</p>
+        )}
+      </div>
+    );
+  }
+
+  function renderWarningsInspector() {
+    const parseWarnings = parseResult?.warnings ?? [];
+    const validationWarnings = validation?.warnings ?? [];
+    const constraintWarnings = quality?.constraint_warnings ?? [];
+    const hasWarnings = parseWarnings.length + validationWarnings.length + constraintWarnings.length + (analysis?.adaptation_warnings.length ?? 0) > 0;
+
+    return (
+      <div className="inspector-block">
+        <h3>Warnings</h3>
+        {hasWarnings ? (
+          <div className="compact-list">
+            {parseWarnings.map((warning, index) => (
+              <div className="finding warning" key={`parse-${index}`}>
+                <strong>{warning.code}</strong>
+                <span>{warning.message}</span>
+              </div>
+            ))}
+            {analysis?.adaptation_warnings.map((warning, index) => (
+              <div className="finding warning" key={`analysis-${index}`}>{warning}</div>
+            ))}
+            {validationWarnings.map((warning, index) => (
+              <div className="finding warning" key={`validation-${index}`}>
+                <strong>{warning.code}</strong>
+                <span className="code">{warning.path || "root"}</span>
+                <div>{warning.message}</div>
+              </div>
+            ))}
+            {constraintWarnings.map((warning, index) => (
+              <div className="finding warning" key={`constraint-${index}`}>
+                <strong>{warning.code}</strong>
+                <span>{warning.message}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="muted">暂无解析、改编或校验提示。</p>
+        )}
+      </div>
+    );
+  }
+
+  function renderValidationInspector() {
+    return (
+      <div className="inspector-block">
+        <h3>校验结果</h3>
+        {validation && validation.errors.length + validation.warnings.length > 0 ? (
+          <div className="compact-list">
+            {validation.errors.map((item, index) => (
+              <div className="finding error" key={`e-${index}`}>
+                <strong>{item.code}</strong>
+                <span className="code">{item.path || "root"}</span>
+                <div>{item.message}</div>
+              </div>
+            ))}
+            {validation.warnings.map((item, index) => (
+              <div className="finding warning" key={`w-${index}`}>
+                <strong>{item.code}</strong>
+                <span className="code">{item.path || "root"}</span>
+                <div>{item.message}</div>
+              </div>
+            ))}
+          </div>
+        ) : validation ? (
+          <div className="finding success"><CheckCircle2 size={14} /> YAML 校验通过</div>
+        ) : (
+          <div className="finding"><AlertTriangle size={14} /> 尚无校验结果</div>
+        )}
+      </div>
+    );
+  }
+
+  function renderInspector() {
+    if (inspectorTab === "trace") return renderTraceInspector();
+    if (inspectorTab === "quality") return renderQualityInspector();
+    if (inspectorTab === "warnings") return renderWarningsInspector();
+    return renderValidationInspector();
+  }
 
   return (
     <main className="app-shell">
@@ -427,287 +970,69 @@ export default function WorkbenchPage() {
         </div>
       </header>
 
-      <section className="workspace">
-        <div className="panel source-panel">
-          <div className="panel-header">
-            <h2 className="panel-title"><FileText size={16} /> 原文</h2>
+      <section className="studio-layout">
+        <aside className="pipeline-rail" aria-label="工作流步骤">
+          <div className="rail-title">
+            <span>Pipeline</span>
+            <strong>{stageItems.filter((item) => item.state === "done").length}/5</strong>
           </div>
-          <textarea
-            aria-label="小说原文"
-            className="input-area"
-            placeholder="在此粘贴 3 章以上的小说文本，或点击“载入 Demo”体验内置示例。"
-            value={novelText}
-            onChange={(event) => {
-              setNovelText(event.target.value);
-              setParseResult(null);
-              resetDownstream();
-            }}
-          />
-          <div className="section source-controls">
-            <div className="flow">
-              <button className="btn" disabled={isBusy} onClick={loadDemo}>
-                {spinner("demo", RefreshCw)}
-                载入 Demo
+          <div className="rail-steps">
+            {stageItems.map((item, index) => (
+              <button
+                className={`rail-step${activeStage === item.key ? " active" : ""}`}
+                data-state={item.state}
+                disabled={item.disabled}
+                key={item.key}
+                onClick={() => setActiveStage(item.key)}
+              >
+                <span className="step-index">{index + 1}</span>
+                <span className="step-icon"><item.Icon size={16} /></span>
+                <span className="step-copy">
+                  <strong>{item.title}</strong>
+                  <span>{item.description}</span>
+                  <em>{item.meta}</em>
+                </span>
               </button>
-              <input
-                ref={txtInputRef}
-                type="file"
-                accept=".txt,text/plain"
-                hidden
-                onChange={(event) => {
-                  void loadTxtFile(event.target.files?.[0] ?? null);
-                  event.currentTarget.value = "";
-                }}
-              />
-              <button className="btn" disabled={isBusy} onClick={() => txtInputRef.current?.click()}>
-                <Upload size={15} />
-                上传 TXT
-              </button>
-              <button className="btn primary" disabled={isBusy || novelText.trim().length === 0} onClick={runParse}>
-                {spinner("parse", SearchCheck)}
-                解析
-              </button>
-              <button className="btn" disabled={isBusy || !canRun} onClick={runAnalyze}>
-                {spinner("analyze", ListChecks)}
-                分析
-              </button>
-              <button className="btn" disabled={isBusy || !analysis} onClick={runPlan}>
-                {spinner("plan", GitBranch)}
-                规划
-              </button>
-              <button className="btn success" disabled={isBusy || !plan || !canRun} onClick={runGenerate}>
-                {spinner("generate", Wand2)}
-                生成
-              </button>
-              <button className="btn" disabled={isBusy || yamlText.trim().length === 0} onClick={runValidate}>
-                {spinner("validate", Play)}
-                校验
-              </button>
-            </div>
-            {message ? <div className={`message ${message.type}`}>{message.text}</div> : null}
-            {parseResult?.checks.meets_minimum_chapters && parseResult.mode === "fixture" && !canUseFixture ? (
-              <p className="hint">
-                离线 Demo 模式：仅内置 Demo 可生成。自定义文本请配置 <code>OPENAI_API_KEY</code> 启用 live 模式。
-              </p>
-            ) : null}
-            {parseResult?.checks.meets_minimum_chapters && parseResult.mode === "live" && !canUseFixture ? (
-              <p className="hint">live 模式：将调用真实 LLM 生成（分析 → 规划 → 生成，可能需要数十秒）。</p>
-            ) : null}
+            ))}
           </div>
-        </div>
+        </aside>
 
-        <div className="panel pipeline-panel">
-          <div className="panel-header">
-            <h2 className="panel-title"><ListChecks size={16} /> 流程</h2>
-          </div>
-          <div className="pipeline-scroll">
-            <div className="section">
-              <h2>解析</h2>
-              {parseResult ? (
-                <>
-                  <div className="metric-grid">
-                    <div className="metric"><strong>{parseResult.stats.chapter_count}</strong><span>章</span></div>
-                    <div className="metric"><strong>{parseResult.stats.paragraph_count}</strong><span>段</span></div>
-                    <div className="metric"><strong>{parseResult.stats.character_count}</strong><span>字</span></div>
-                  </div>
-                  {parseResult.warnings.length > 0 ? (
-                    <div className="findings" style={{ marginTop: 10 }}>
-                      {parseResult.warnings.map((warning, index) => (
-                        <div className="finding warning" key={`${warning.code}-${warning.path ?? index}`}>
-                          <strong>{warning.code}</strong> <span>{warning.message}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  <div className="list" style={{ marginTop: 10 }}>
-                    {parseResult.source_paragraphs.map((p) => (
-                      <div
-                        className={`row clickable${traceParaIds.includes(p.id) ? " trace" : ""}`}
-                        id={`para-${p.id}`}
-                        key={p.id}
-                        onClick={() => setTraceParaIds([p.id])}
-                      >
-                        <div className="row-title"><span>{p.chapter_id} / 第{p.paragraph_index}段</span><span className="code">{p.id}</span></div>
-                        <p>{p.text ?? p.text_preview}</p>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <p className="code">尚无解析结果</p>
-              )}
+        <section className="stage-panel" aria-label="当前工作区">
+          <div className="stage-header">
+            <div>
+              <span className="eyebrow">Stage</span>
+              <h2><activeStageItem.Icon size={18} /> {activeStageItem.title}</h2>
+              <p>{activeStageItem.description}</p>
             </div>
+            <span className={`stage-state ${activeStageItem.state}`}>{activeStageItem.meta}</span>
+          </div>
+          {message ? <div className={`message ${message.type}`} role={message.type === "error" ? "alert" : "status"}>{message.text}</div> : null}
+          {parseResult?.checks.meets_minimum_chapters && parseResult.mode === "fixture" && !canUseFixture ? (
+            <p className="hint">
+              离线 Demo 模式：仅内置 Demo 可生成。自定义文本请配置 <code>OPENAI_API_KEY</code> 启用 live 模式。
+            </p>
+          ) : null}
+          {parseResult?.checks.meets_minimum_chapters && parseResult.mode === "live" && !canUseFixture ? (
+            <p className="hint">live 模式：将调用真实 LLM 生成（分析 → 规划 → 生成，可能需要数十秒）。</p>
+          ) : null}
+          <div className="stage-body">{renderStage()}</div>
+        </section>
 
-            <div className="section">
-              <h2>人物 · 地点</h2>
-              {analysis ? (
-                <div className="list">
-                  {[...analysis.characters, ...analysis.locations].map((item) => (
-                    <div className="row" key={item.id}>
-                      <div className="row-title"><span>{item.name}</span><span className="code">{item.id}</span></div>
-                      <p>{"motivation" in item ? item.motivation : item.description}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="code">尚无分析结果</p>
-              )}
-            </div>
-
-            <div className="section">
-              <h2>事件 · 冲突 · 钩子</h2>
-              {analysis ? (
-                <div className="list">
-                  {analysis.key_events.map((event) => (
-                    <div className="row" key={event.id}>
-                      <div className="row-title"><span>{event.summary}</span><span className="code">{event.id}</span></div>
-                      <p>{event.dramatic_function} · {event.source_refs.join(", ")}</p>
-                    </div>
-                  ))}
-                  {analysis.conflicts.map((conflict) => (
-                    <div className="row" key={conflict.id}>
-                      <div className="row-title"><span>{conflict.surface_conflict}</span><span className="code">{conflict.id}</span></div>
-                      <p>{conflict.stakes}</p>
-                    </div>
-                  ))}
-                  {analysis.hook_candidates.map((hook) => (
-                    <div className="row" key={hook.id}>
-                      <div className="row-title"><span>{hook.description}</span><span className="code">{hook.id}</span></div>
-                      <p>{hook.why_it_hooks}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="code">尚无事件/冲突分析</p>
-              )}
-            </div>
-
-            <div className="section">
-              <h2>分场规划</h2>
-              {plan ? (
-                <>
-                  <div className="list">
-                    {plan.scene_plan.map((scene) => (
-                      <div className="row" key={`${scene.episode_no}-${scene.scene_no}`}>
-                        <div className="row-title">
-                          <span>第{scene.episode_no}集 · 第{scene.scene_no}场</span>
-                          <span className="code">{scene.location_id}</span>
-                        </div>
-                        <p>{scene.purpose}</p>
-                        <p>{scene.conflict} · {scene.emotional_shift}</p>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="hint">
-                    关键事件覆盖率 {Math.round(plan.coverage.coverage_ratio * 100)}%
-                    （{plan.coverage.covered_event_ids.length}/{plan.coverage.covered_event_ids.length + plan.coverage.omitted_event_ids.length}）
-                  </p>
-                </>
-              ) : (
-                <p className="code">尚无分场规划</p>
-              )}
-            </div>
-
-            <div className="section">
-              <h2>溯源（点 beat 看原文 / 点原文看出处）</h2>
-              {scriptJson ? (
-                <div className="list">
-                  {flattenBeats(scriptJson).map((row) => {
-                    const hit = row.source_refs.some((r) => traceParaIds.includes(r));
-                    return (
-                      <div
-                        className={`row clickable${hit ? " trace" : ""}`}
-                        key={row.key}
-                        onClick={() => {
-                          setTraceParaIds(row.source_refs);
-                          const first = row.source_refs[0];
-                          if (first) document.getElementById(`para-${first}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
-                        }}
-                      >
-                        <div className="row-title"><span>{row.label}</span></div>
-                        <p>{row.preview}</p>
-                        <div className="chips">
-                          {row.source_refs.length > 0
-                            ? row.source_refs.map((r) => <span className="code" key={r}>{r}</span>)
-                            : <span className="code">无溯源</span>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="code">生成剧本后可在此点击 beat 高亮其原文出处</p>
-              )}
+        <aside className="inspector-panel" aria-label="检查器">
+          <div className="inspector-header">
+            <div>
+              <span className="eyebrow">Inspector</span>
+              <h2>追溯与质量</h2>
             </div>
           </div>
-        </div>
-
-        <div className="panel yaml-panel">
-          <div className="panel-header">
-            <h2 className="panel-title"><FileText size={16} /> YAML 剧本</h2>
-            <button className="btn" disabled={isBusy || yamlText.trim().length === 0} onClick={runValidate}>
-              {spinner("validate", SearchCheck)}
-              重新校验
-            </button>
+          <div className="inspector-tabs" role="tablist" aria-label="检查器标签">
+            <button className={inspectorTab === "trace" ? "active" : ""} onClick={() => setInspectorTab("trace")}>追溯</button>
+            <button className={inspectorTab === "quality" ? "active" : ""} onClick={() => setInspectorTab("quality")}>质量</button>
+            <button className={inspectorTab === "warnings" ? "active" : ""} onClick={() => setInspectorTab("warnings")}>Warnings</button>
+            <button className={inspectorTab === "validation" ? "active" : ""} onClick={() => setInspectorTab("validation")}>校验</button>
           </div>
-          <textarea
-            aria-label="剧本 YAML"
-            className="yaml-area"
-            placeholder="生成后这里会出现可编辑的 YAML 剧本，改完点“重新校验”。"
-            value={yamlText}
-            onChange={(event) => setYamlText(event.target.value)}
-          />
-          <div className="section">
-            <h2>质量</h2>
-            {quality ? (
-              <div className="quality">
-                <div><strong>{Math.round(quality.source_coverage_ratio * 100)}%</strong><span>原文覆盖率</span></div>
-                <div><strong>{quality.referenced_paragraph_count}/{quality.total_paragraph_count}</strong><span>引用/总段</span></div>
-                <div><strong>{quality.untraceable_scenes.length}</strong><span>无溯源场景</span></div>
-              </div>
-            ) : (
-              <p className="code">尚无质量报告</p>
-            )}
-          </div>
-          <div className="section">
-            <h2>校验结果</h2>
-            {validation && validation.errors.length + validation.warnings.length > 0 ? (
-              <div className="findings">
-                {validation.errors.map((item, index) => (
-                  <div className="finding error" key={`e-${index}`}>
-                    <strong>{item.code}</strong> <span className="code">{item.path || "root"}</span>
-                    <div>{item.message}</div>
-                  </div>
-                ))}
-                {validation.warnings.map((item, index) => (
-                  <div className="finding warning" key={`w-${index}`}>
-                    <strong>{item.code}</strong> <span className="code">{item.path || "root"}</span>
-                    <div>{item.message}</div>
-                  </div>
-                ))}
-              </div>
-            ) : validation ? (
-              <div className="finding"><CheckCircle2 size={14} /> YAML 校验通过</div>
-            ) : (
-              <div className="finding"><AlertTriangle size={14} /> 尚无校验结果</div>
-            )}
-          </div>
-          <div className="section">
-            <h2>导出</h2>
-            <div className="flow">
-              <button className="btn" disabled={yamlText.trim().length === 0} onClick={() => downloadFile("script.yaml", yamlText)}>
-                <Download size={15} /> 下载 YAML
-              </button>
-              <button className="btn" disabled={!scriptJson} onClick={() => scriptJson && downloadFile("script.json", JSON.stringify(scriptJson, null, 2))}>
-                <Download size={15} /> 下载 JSON
-              </button>
-              <button className="btn" disabled={!scriptJson} onClick={() => scriptJson && downloadFile("adaptation-report.md", buildAdaptationReport(scriptJson))}>
-                <Download size={15} /> 下载改编报告
-              </button>
-            </div>
-            {scriptJson ? null : <p className="hint">生成或重新校验后可导出 JSON / 改编报告。</p>}
-          </div>
-        </div>
+          <div className="inspector-body">{renderInspector()}</div>
+        </aside>
       </section>
     </main>
   );

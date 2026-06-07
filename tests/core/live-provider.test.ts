@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { LiveLLMProvider } from "../../src/llm/live-provider";
 import type { CompleteFn } from "../../src/llm/json-llm";
-import type { AnalyzeInput, GenerateInput, PlanInput } from "../../src/llm/provider";
+import type { AnalyzeInput, AnalyzeResult, GenerateInput, PlanInput, PlanScenesResult } from "../../src/llm/provider";
 
 const source = {
   source_fingerprint: "fp",
@@ -15,14 +15,50 @@ function fixedComplete(json: string): CompleteFn {
   return async () => json;
 }
 
+const v2Analysis: AnalyzeResult = {
+  characters: [{ id: "char_lin", name: "林深", aliases: [], role: "protagonist", motivation: "", relationship_notes: "", source_refs: ["ch1_p1_aaaa1111"] }],
+  locations: [{ id: "loc_dock", name: "旧码头", description: "", source_refs: ["ch1_p1_aaaa1111"] }],
+  entity_catalog: [{ id: "char_lin", name: "林深" }, { id: "loc_dock", name: "旧码头" }],
+  chapter_summaries: [{ chapter_id: "ch1", summary: "归港" }],
+  key_events: [{ id: "evt_return", summary: "归港", involved_character_ids: ["char_lin"], location_id: "loc_dock", dramatic_function: "hook", source_refs: ["ch1_p1_aaaa1111"] }],
+  conflicts: [],
+  relationship_edges: [],
+  hook_candidates: [],
+  adaptation_warnings: [],
+};
+
 describe("LiveLLMProvider.analyze", () => {
-  it("assigns deterministic entity IDs and builds the catalog", async () => {
+  it("maps names to system IDs and builds structured dramaturgy cards", async () => {
     const json = JSON.stringify({
       characters: [{ name: "林深", role: "protagonist", source_refs: ["ch1_p1_aaaa1111", "ch9_bad"] }],
-      locations: [{ name: "旧码头" }],
+      locations: [{ name: "旧码头", source_refs: ["ch1_p1_aaaa1111"] }],
       chapter_summaries: [{ chapter_id: "ch1", summary: "归港" }],
-      key_events: ["回港"],
-      conflicts: ["真相"],
+      key_events: [{
+        id: "evt_return",
+        summary: "林深回到旧码头",
+        involved_character_names: ["林深"],
+        location_name: "旧码头",
+        dramatic_function: "hook",
+        source_refs: ["ch1_p1_aaaa1111", "bad_ref"],
+      }],
+      conflicts: [{
+        id: "conf_truth",
+        parties: ["林深"],
+        surface_conflict: "追查真相",
+        underlying_tension: "真相被遮掩",
+        stakes: "旧案会牵动雾港",
+        escalation: "线索指向仓库",
+        source_refs: ["ch1_p1_aaaa1111"],
+      }],
+      relationship_edges: [],
+      hook_candidates: [{
+        id: "hook_return",
+        description: "死里逃生的人归港",
+        why_it_hooks: "开场抛出生死谜题",
+        suggested_episode_no: 1,
+        source_refs: ["ch1_p1_aaaa1111"],
+      }],
+      adaptation_warnings: ["原文较短，需要强化冲突。"],
     });
     const provider = new LiveLLMProvider(fixedComplete(json));
     const r = await provider.analyze(source as AnalyzeInput);
@@ -30,25 +66,48 @@ describe("LiveLLMProvider.analyze", () => {
     expect(r.locations[0]!.id).toMatch(/^loc_/);
     expect(r.entity_catalog.length).toBe(2);
     expect(r.characters[0]!.source_refs).toEqual(["ch1_p1_aaaa1111"]);
-    expect(r.characters[0]!.motivation).toBe("");
+    expect(r.key_events[0]!.involved_character_ids).toEqual([r.characters[0]!.id]);
+    expect(r.key_events[0]!.location_id).toBe(r.locations[0]!.id);
+    expect(r.key_events[0]!.source_refs).toEqual(["ch1_p1_aaaa1111"]); // bad_ref filtered out
+    expect(r.conflicts[0]!.id).toBe("conf_truth");
+    expect(r.hook_candidates[0]!.source_refs).toEqual(["ch1_p1_aaaa1111"]);
+    expect(r.adaptation_warnings).toEqual(["原文较短，需要强化冲突。"]);
   });
 
   it("throws when given no source paragraphs", async () => {
     const provider = new LiveLLMProvider(fixedComplete("{}"));
     await expect(provider.analyze({ source_fingerprint: "fp" } as AnalyzeInput)).rejects.toThrow();
   });
+
+  it("de-duplicates colliding event ids so coverage/links stay unambiguous", async () => {
+    const json = JSON.stringify({
+      characters: [{ name: "林深" }],
+      locations: [],
+      chapter_summaries: [],
+      key_events: [
+        { id: "evt_x", summary: "a", involved_character_names: [], location_name: null, dramatic_function: "hook", source_refs: [] },
+        { id: "evt_x", summary: "b", involved_character_names: [], location_name: null, dramatic_function: "setup", source_refs: [] },
+      ],
+      conflicts: [],
+      relationship_edges: [],
+      hook_candidates: [],
+      adaptation_warnings: [],
+    });
+    const r = await new LiveLLMProvider(fixedComplete(json)).analyze(source as AnalyzeInput);
+    const ids = r.key_events.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
 });
 
 describe("LiveLLMProvider.generateScript", () => {
-  const analysis = {
-    characters: [{ id: "char_lin", name: "林深", aliases: [], role: "protagonist" as const, motivation: "", relationship_notes: "", source_refs: ["ch1_p1_aaaa1111"] }],
-    locations: [{ id: "loc_dock", name: "旧码头", description: "", source_refs: ["ch1_p1_aaaa1111"] }],
-    entity_catalog: [{ id: "char_lin", name: "林深" }, { id: "loc_dock", name: "旧码头" }],
-    chapter_summaries: [{ chapter_id: "ch1", summary: "归港" }],
-    key_events: [],
-    conflicts: [],
+  const analysis = v2Analysis;
+  const plan: PlanScenesResult = {
+    episodes: [],
+    scene_plan: [],
+    coverage: { covered_event_ids: [], omitted_event_ids: [], coverage_ratio: 1 },
+    pacing_notes: [],
+    adaptation_strategy: "",
   };
-  const plan = { episodes: [], scene_plan: [], pacing_notes: [], adaptation_strategy: "" };
   const creativeJson = JSON.stringify({
     episodes: [{
       episode_no: 1, title: "归来", opening_hook: "他回来了", core_conflict: "真相", cliffhanger: "灯灭了", estimated_duration_seconds: 120,
@@ -97,15 +156,51 @@ describe("LiveLLMProvider.generateScript", () => {
 });
 
 describe("LiveLLMProvider.planScenes", () => {
-  it("validates and returns the plan", async () => {
+  it("validates, recomputes coverage, and returns a consistent v2 plan", async () => {
     const planJson = JSON.stringify({
-      episodes: [{ episode_no: 1, title: "t", opening_hook: "h", core_conflict: "c", cliffhanger: "cl", estimated_duration_seconds: 120, scene_refs: ["s1"] }],
-      scene_plan: [{ episode_no: 1, scene_no: 1, location_id: "loc_dock", summary: "s" }],
-      pacing_notes: [], adaptation_strategy: "balanced",
+      episodes: [{
+        episode_no: 1,
+        title: "归来",
+        opening_hook: "h",
+        main_goal: "林深确认线索",
+        core_conflict: "c",
+        turning_point: "灯塔熄灭",
+        cliffhanger: "cl",
+        estimated_duration_seconds: 120,
+        event_ids: ["evt_return"],
+        source_refs: ["ch1_p1_aaaa1111"],
+      }],
+      scene_plan: [{
+        episode_no: 1,
+        scene_no: 1,
+        location_id: "loc_dock",
+        purpose: "建立钩子",
+        conflict: "试探",
+        emotional_shift: "压抑 -> 警觉",
+        required_character_ids: ["char_lin"],
+        event_ids: ["evt_return"],
+        source_refs: ["ch1_p1_aaaa1111"],
+        summary: "s",
+      }],
+      pacing_notes: [],
+      adaptation_strategy: "balanced",
     });
-    const analysis = { characters: [], locations: [], entity_catalog: [], chapter_summaries: [], key_events: [], conflicts: [] };
     const provider = new LiveLLMProvider(fixedComplete(planJson));
-    const r = await provider.planScenes({ ...source, analysis } as PlanInput);
-    expect(r.scene_plan).toHaveLength(1);
+    const r = await provider.planScenes({ ...source, analysis: v2Analysis } as PlanInput);
+    expect(r.coverage.coverage_ratio).toBe(1);
+    expect(r.scene_plan[0]!.purpose).toBe("建立钩子");
+  });
+
+  it("retries when the plan references unknown IDs, then throws", async () => {
+    const badPlan = JSON.stringify({
+      episodes: [],
+      scene_plan: [{
+        episode_no: 1, scene_no: 1, location_id: "loc_ghost", purpose: "x", conflict: "x", emotional_shift: "x",
+        required_character_ids: [], event_ids: [], source_refs: [], summary: "x",
+      }],
+      pacing_notes: [], adaptation_strategy: "x",
+    });
+    const provider = new LiveLLMProvider(fixedComplete(badPlan), 1);
+    await expect(provider.planScenes({ ...source, analysis: v2Analysis } as PlanInput)).rejects.toThrow(/loc_ghost|不合法/);
   });
 });

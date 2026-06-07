@@ -4,41 +4,129 @@
       "episode_no": 1,
       "title": "归港灯灭",
       "opening_hook": "三年后，林深踏上旧码头，海风把他父亲沉船那夜的味道吹了回来。",
+      "main_goal": "让林深重新进入雾港旧案，并确认苏晚掌握关键线索。",
       "core_conflict": "林深想知道苏晚为何等他，苏晚却先抛出他不该活着的谜。",
+      "turning_point": "苏晚的反常沉默让林深意识到沉船不是意外。",
       "cliffhanger": "灯塔在两人对视时骤然熄灭。",
       "estimated_duration_seconds": 120,
-      "scene_refs": ["ch1_p1_df6f5806", "ch1_p2_cfaa58f1"]
+      "event_ids": ["evt_return_to_port", "evt_su_wan_waits"],
+      "source_refs": ["ch1_p1_df6f5806", "ch1_p2_cfaa58f1"]
     },
     {
       "episode_no": 2,
       "title": "怀表坐标",
       "opening_hook": "苏晚打开怀表，坐标指向周砚封死的仓库。",
+      "main_goal": "让林深和苏晚从线索进入明确调查目标。",
       "core_conflict": "林深和苏晚要查货单，周砚出面封路。",
+      "turning_point": "周砚的强硬封锁证明仓库里有不能见光的证据。",
       "cliffhanger": "仓库门缝里传出怀表一样的滴答声。",
       "estimated_duration_seconds": 120,
-      "scene_refs": ["ch2_p1_acbae21c", "ch2_p2_87f95f45"]
+      "event_ids": ["evt_watch_coordinates", "evt_zhou_blocks_warehouse"],
+      "source_refs": ["ch2_p1_acbae21c", "ch2_p2_87f95f45"]
     },
     {
       "episode_no": 3,
       "title": "真相上岸",
       "opening_hook": "暴雨夜，林深在仓库暗格里摸到父亲亲笔信。",
+      "main_goal": "让林深完成从追查父亲到承担公共真相的转变。",
       "core_conflict": "林深必须决定是否公开会毁掉雾港的真相。",
+      "turning_point": "父亲的信揭开真相也揭开船员家属被控制的现实。",
       "cliffhanger": "周砚带人围住旧码头，逼林深交出那封信。",
       "estimated_duration_seconds": 120,
-      "scene_refs": ["ch3_p1_cbe21379", "ch3_p2_3d978716"]
+      "event_ids": ["evt_letter_in_hidden_compartment", "evt_truth_choice"],
+      "source_refs": ["ch3_p1_cbe21379", "ch3_p2_3d978716"]
     }
   ],
   "scene_plan": [
-    { "episode_no": 1, "scene_no": 1, "location_id": "loc_a31088", "summary": "林深独自归港，沉船记忆压回胸口。" },
-    { "episode_no": 1, "scene_no": 2, "location_id": "loc_3bbdc4", "summary": "苏晚在灯塔门口出现，暗示林深本不该活着。" },
-    { "episode_no": 2, "scene_no": 1, "location_id": "loc_3bbdc4", "summary": "苏晚交出怀表坐标，指向父亲失踪前的路线。" },
-    { "episode_no": 2, "scene_no": 2, "location_id": "loc_3cb28f", "summary": "周砚封住仓库，阻止林深追查货单。" },
-    { "episode_no": 3, "scene_no": 1, "location_id": "loc_3cb28f", "summary": "林深找到父亲写给苏晚的信，真相显形。" },
-    { "episode_no": 3, "scene_no": 2, "location_id": "loc_a31088", "summary": "林深面对周砚与雾港家属，决定让真相上岸。" }
+    {
+      "episode_no": 1,
+      "scene_no": 1,
+      "location_id": "loc_a31088",
+      "purpose": "用归港画面建立主角创伤和三年前沉船悬念。",
+      "conflict": "林深想压住回忆，码头环境不断把他推回沉船那夜。",
+      "emotional_shift": "克制 -> 被旧案刺痛",
+      "required_character_ids": ["char_aadd69"],
+      "event_ids": ["evt_return_to_port"],
+      "source_refs": ["ch1_p1_df6f5806"],
+      "summary": "林深独自归港，沉船记忆压回胸口。"
+    },
+    {
+      "episode_no": 1,
+      "scene_no": 2,
+      "location_id": "loc_3bbdc4",
+      "purpose": "让苏晚出场并抛出林深为何活着的反常谜题。",
+      "conflict": "林深想得到解释，苏晚用沉默和试探掌控谈话。",
+      "emotional_shift": "警觉 -> 不安",
+      "required_character_ids": ["char_aadd69", "char_d65c66"],
+      "event_ids": ["evt_su_wan_waits"],
+      "source_refs": ["ch1_p2_cfaa58f1"],
+      "summary": "苏晚在灯塔门口出现，暗示林深本不该活着。"
+    },
+    {
+      "episode_no": 2,
+      "scene_no": 1,
+      "location_id": "loc_3bbdc4",
+      "purpose": "用怀表坐标把悬念转成明确调查目标。",
+      "conflict": "苏晚逼林深继续查，林深担心线索把他拖回父亲旧案。",
+      "emotional_shift": "怀疑 -> 决定行动",
+      "required_character_ids": ["char_aadd69", "char_d65c66"],
+      "event_ids": ["evt_watch_coordinates"],
+      "source_refs": ["ch2_p1_acbae21c"],
+      "summary": "苏晚交出怀表坐标，指向父亲失踪前的路线。"
+    },
+    {
+      "episode_no": 2,
+      "scene_no": 2,
+      "location_id": "loc_3cb28f",
+      "purpose": "让周砚成为明确对抗面，并证明仓库里有证据。",
+      "conflict": "林深和苏晚想进仓库，周砚用人和警告封死入口。",
+      "emotional_shift": "主动 -> 被压迫",
+      "required_character_ids": ["char_aadd69", "char_d65c66", "char_005a7b"],
+      "event_ids": ["evt_zhou_blocks_warehouse"],
+      "source_refs": ["ch2_p2_87f95f45"],
+      "summary": "周砚封住仓库，阻止林深追查货单。"
+    },
+    {
+      "episode_no": 3,
+      "scene_no": 1,
+      "location_id": "loc_3cb28f",
+      "purpose": "揭示父亲信件，把外部调查变成道德选择。",
+      "conflict": "林深想拿到证据，信件内容却让真相代价变得更沉重。",
+      "emotional_shift": "急切 -> 震动",
+      "required_character_ids": ["char_aadd69", "char_d65c66"],
+      "event_ids": ["evt_letter_in_hidden_compartment"],
+      "source_refs": ["ch3_p1_cbe21379"],
+      "summary": "林深找到父亲写给苏晚的信，真相显形。"
+    },
+    {
+      "episode_no": 3,
+      "scene_no": 2,
+      "location_id": "loc_a31088",
+      "purpose": "完成主角选择，并把真相公开的代价推到台前。",
+      "conflict": "林深要让真相上岸，周砚要继续用雾港安稳压住他。",
+      "emotional_shift": "犹豫 -> 决断",
+      "required_character_ids": ["char_aadd69", "char_005a7b"],
+      "event_ids": ["evt_truth_choice"],
+      "source_refs": ["ch3_p2_3d978716"],
+      "summary": "林深面对周砚与雾港家属，决定让真相上岸。"
+    }
   ],
+  "coverage": {
+    "covered_event_ids": [
+      "evt_return_to_port",
+      "evt_su_wan_waits",
+      "evt_watch_coordinates",
+      "evt_zhou_blocks_warehouse",
+      "evt_letter_in_hidden_compartment",
+      "evt_truth_choice"
+    ],
+    "omitted_event_ids": [],
+    "coverage_ratio": 1
+  },
   "pacing_notes": [
     "每集控制在两场，第一场抛线索，第二场给反转或悬念。",
-    "短剧节奏优先保留怀表、货单、暗格信三个可视化线索。"
+    "短剧节奏优先保留怀表、货单、暗格信三个可视化线索。",
+    "每场都绑定一个关键事件，避免场景只承担气氛而不推动剧情。"
   ],
-  "adaptation_strategy": "保留父亲沉船主线，压缩旁支人物，把周砚作为明确对抗面。"
+  "adaptation_strategy": "保留父亲沉船主线，压缩旁支人物，把周砚作为明确对抗面；用怀表、仓库、信件三个道具串起三集悬念。"
 }

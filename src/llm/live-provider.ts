@@ -9,6 +9,8 @@ import { callJson, extractJson, type ChatMessage, type CompleteFn } from "./json
 import { RawAnalyzeSchema, PlanSchema } from "./output-schemas";
 import { findPlanConsistencyErrors, normalizePlanCoverage } from "./plan-consistency";
 import { buildAnalyzeMessages, buildPlanMessages, buildGenerateMessages } from "./prompts";
+import { validateScriptObject } from "../core/validate/full";
+import { checkGeneratedScriptAgainstPlan, formatGenerationFeedback, retryableWarnings } from "./generation-feedback";
 import type {
   AnalyzeInput,
   AnalyzeResult,
@@ -184,7 +186,9 @@ export class LiveLLMProvider implements ScriptProvider {
 
   async generateScript(input: GenerateInput): Promise<GenerateScriptResult> {
     if (!input.analysis || !input.plan) throw new Error("live generateScript 需要 analyze 与 plan 结果。");
-    const messages: ChatMessage[] = [...buildGenerateMessages(input, input.analysis, input.plan)];
+    const analysis = input.analysis;
+    const plan = input.plan;
+    const messages: ChatMessage[] = [...buildGenerateMessages(input, analysis, plan)];
     let lastError = "";
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       const raw = await this.complete(messages);
@@ -196,12 +200,17 @@ export class LiveLLMProvider implements ScriptProvider {
         messages.push({ role: "assistant", content: raw }, { role: "user", content: `${lastError}。只返回合法 JSON。` });
         continue;
       }
-      const assembled = assembleScript(input, input.analysis, partial);
-      const result = ScriptSchema.safeParse(assembled);
-      if (result.success) {
-        if (result.data.episodes.length > 0) {
-          return { script_json: result.data, script_yaml: scriptToYaml(result.data) };
-        }
+      const assembled = assembleScript(input, analysis, partial);
+      const schemaResult = ScriptSchema.safeParse(assembled);
+      if (!schemaResult.success) {
+        lastError = schemaResult.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ");
+        messages.push(
+          { role: "assistant", content: raw },
+          { role: "user", content: `剧本结构不合法：${lastError}。请修正 episodes/beats 后只返回合法 JSON（仅 episodes 与 adaptation_notes）。` },
+        );
+        continue;
+      }
+      if (schemaResult.data.episodes.length === 0) {
         lastError = "episodes 为空";
         messages.push(
           { role: "assistant", content: raw },
@@ -209,11 +218,36 @@ export class LiveLLMProvider implements ScriptProvider {
         );
         continue;
       }
-      lastError = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      messages.push(
-        { role: "assistant", content: raw },
-        { role: "user", content: `剧本结构不合法：${lastError}。请修正 episodes/beats 后只返回合法 JSON（仅 episodes 与 adaptation_notes）。` },
-      );
+
+      const canonical = {
+        paragraphIds: (input.source_paragraphs ?? []).map((paragraph) => paragraph.id),
+        fingerprint: input.source_fingerprint,
+      };
+      const validation = validateScriptObject(schemaResult.data, { mode: "generate", canonical });
+      const validatedScript = validation.script;
+      const planFindings = validatedScript ? checkGeneratedScriptAgainstPlan(validatedScript, plan) : [];
+      const hardFindings = [...validation.errors, ...planFindings];
+      if (hardFindings.length > 0) {
+        lastError = formatGenerationFeedback(hardFindings);
+        messages.push(
+          { role: "assistant", content: raw },
+          { role: "user", content: `生成结果未通过确定性校验，请按路径修正后只返回合法 JSON（仅 episodes 与 adaptation_notes）：\n${lastError}` },
+        );
+        continue;
+      }
+
+      const warningFindings = retryableWarnings(validation.warnings);
+      if (warningFindings.length > 0 && attempt < this.maxRetries) {
+        lastError = formatGenerationFeedback(warningFindings);
+        messages.push(
+          { role: "assistant", content: raw },
+          { role: "user", content: `生成结果可解析但质量不足，请增强 source_refs、开场钩子、结尾悬念与规划一致性后只返回合法 JSON（仅 episodes 与 adaptation_notes）：\n${lastError}` },
+        );
+        continue;
+      }
+
+      const finalScript = validatedScript ?? schemaResult.data;
+      return { script_json: finalScript, script_yaml: scriptToYaml(finalScript) };
     }
     throw new Error(`live 生成在 ${this.maxRetries + 1} 次尝试后仍未产出合法剧本：${lastError}`);
   }

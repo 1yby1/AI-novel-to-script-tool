@@ -37,6 +37,16 @@ function safeId(id: string, prefix: string, index: number): string {
   const cleaned = id.trim().replace(/[^a-zA-Z0-9_-]+/g, "_");
   return cleaned || `${prefix}_${index + 1}`;
 }
+function uniqueSafeId(id: string, prefix: string, index: number, seen: Set<string>): string {
+  let candidate = safeId(id, prefix, index);
+  if (seen.has(candidate)) {
+    let n = 2;
+    while (seen.has(`${candidate}_${n}`)) n += 1;
+    candidate = `${candidate}_${n}`;
+  }
+  seen.add(candidate);
+  return candidate;
+}
 
 export class LiveLLMProvider implements ScriptProvider {
   constructor(private readonly complete: CompleteFn, private readonly maxRetries = 2) {}
@@ -75,9 +85,12 @@ export class LiveLLMProvider implements ScriptProvider {
 
     const charByName = (name: string): string | undefined => chars.nameToId[canonicalizeName(name)];
     const locByName = (name: string): string | undefined => locs.nameToId[canonicalizeName(name)];
+    const eventSeen = new Set<string>();
+    const conflictSeen = new Set<string>();
+    const hookSeen = new Set<string>();
 
     const key_events: AnalyzeResult["key_events"] = raw.key_events.map((e, index) => ({
-      id: safeId(e.id, "evt", index),
+      id: uniqueSafeId(e.id, "evt", index, eventSeen),
       summary: e.summary,
       involved_character_ids: e.involved_character_names
         .map((name) => charByName(name))
@@ -88,7 +101,7 @@ export class LiveLLMProvider implements ScriptProvider {
     }));
 
     const conflicts: AnalyzeResult["conflicts"] = raw.conflicts.map((c, index) => ({
-      id: safeId(c.id, "conf", index),
+      id: uniqueSafeId(c.id, "conf", index, conflictSeen),
       parties: c.parties,
       surface_conflict: c.surface_conflict,
       underlying_tension: c.underlying_tension,
@@ -113,7 +126,7 @@ export class LiveLLMProvider implements ScriptProvider {
       .filter((edge): edge is AnalyzeResult["relationship_edges"][number] => edge !== null);
 
     const hook_candidates: AnalyzeResult["hook_candidates"] = raw.hook_candidates.map((h, index) => ({
-      id: safeId(h.id, "hook", index),
+      id: uniqueSafeId(h.id, "hook", index, hookSeen),
       description: h.description,
       why_it_hooks: h.why_it_hooks,
       suggested_episode_no: h.suggested_episode_no,

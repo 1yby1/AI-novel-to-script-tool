@@ -9,7 +9,7 @@ function uniqueSorted(values: string[]): string[] {
  * against the analysis key-events (never trust a model-supplied coverage).
  */
 export function normalizePlanCoverage(plan: PlanScenesResult, analysis: AnalyzeResult): PlanCoverage {
-  const allEventIds = analysis.key_events.map((event) => event.id);
+  const allEventIds = [...new Set(analysis.key_events.map((event) => event.id))];
   const used = uniqueSorted(
     [
       ...plan.episodes.flatMap((episode) => episode.event_ids),

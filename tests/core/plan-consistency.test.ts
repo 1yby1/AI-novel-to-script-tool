@@ -63,6 +63,14 @@ describe("normalizePlanCoverage", () => {
       coverage_ratio: 0.5,
     });
   });
+
+  it("dedupes duplicate analysis event ids in the coverage denominator", () => {
+    const dupAnalysis: AnalyzeResult = {
+      ...analysis,
+      key_events: [analysis.key_events[0]!, analysis.key_events[0]!, analysis.key_events[1]!],
+    };
+    expect(normalizePlanCoverage(plan, dupAnalysis).coverage_ratio).toBe(0.5);
+  });
 });
 
 describe("findPlanConsistencyErrors", () => {

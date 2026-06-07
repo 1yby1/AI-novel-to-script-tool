@@ -78,6 +78,25 @@ describe("LiveLLMProvider.analyze", () => {
     const provider = new LiveLLMProvider(fixedComplete("{}"));
     await expect(provider.analyze({ source_fingerprint: "fp" } as AnalyzeInput)).rejects.toThrow();
   });
+
+  it("de-duplicates colliding event ids so coverage/links stay unambiguous", async () => {
+    const json = JSON.stringify({
+      characters: [{ name: "林深" }],
+      locations: [],
+      chapter_summaries: [],
+      key_events: [
+        { id: "evt_x", summary: "a", involved_character_names: [], location_name: null, dramatic_function: "hook", source_refs: [] },
+        { id: "evt_x", summary: "b", involved_character_names: [], location_name: null, dramatic_function: "setup", source_refs: [] },
+      ],
+      conflicts: [],
+      relationship_edges: [],
+      hook_candidates: [],
+      adaptation_warnings: [],
+    });
+    const r = await new LiveLLMProvider(fixedComplete(json)).analyze(source as AnalyzeInput);
+    const ids = r.key_events.map((e) => e.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
 });
 
 describe("LiveLLMProvider.generateScript", () => {

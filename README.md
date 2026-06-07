@@ -28,7 +28,7 @@ Novel2Script 是一个本地运行的剧本创作工作台。它的核心不是"
 - **规划结构升级**：规划阶段输出 `episodes` 与细粒度 `scene_plan`；每场包含 `purpose`、`conflict`、`emotional_shift`、`required_character_ids`、`event_ids`、`source_refs`，并计算事件覆盖率，方便检查是否漏改关键剧情。
 - **生成校验前置**：`LiveLLMProvider.generateScript` 在返回 YAML 前先组装完整 `Script`，运行 `validateScriptObject(..., { mode: "generate" })`，再检查生成场景是否遵守规划。
 - **反馈更精确**：生成失败不只报“格式错”，而是把 path 级错误、规划缺失场景/人物/引用、`repaired_refs`、`WEAK_TRACEABILITY`、`CONSTRAINT_WARNING` 等具体问题回灌给模型。
-- **解析与 TXT 上传方案已补充**：下一步实现计划见 [`docs/superpowers/plans/2026-06-07-parse-boundaries-txt-upload.md`](docs/superpowers/plans/2026-06-07-parse-boundaries-txt-upload.md)，重点是章节边界防误切、长段落拆分、解析 warnings、前端 UTF-8 `.txt` 上传。
+- **解析鲁棒性 + TXT 上传（已实现）**：更宽但带防误判的章节边界识别（`第01章：`/`1、`/`一、`/`Chapter 02 -`，且不把编号正文误判成标题）、长段落按句切分、非阻断解析 warnings、前端 UTF-8 `.txt` 上传；方案见 [`docs/superpowers/plans/2026-06-07-parse-boundaries-txt-upload.md`](docs/superpowers/plans/2026-06-07-parse-boundaries-txt-upload.md)。
 
 ---
 
@@ -88,8 +88,8 @@ npm run dev
 
 在工作台依次点击（按钮按流程**依次解锁**）：
 
-1. **载入 Demo**（或在"原文"框粘贴你自己的 ≥3 章小说）
-2. **解析** → 章节/段落 + 稳定 ID + 指纹徽章
+1. **载入 Demo** / **上传 TXT**（或在"原文"框粘贴你自己的 ≥3 章小说；支持 UTF-8 `.txt` 文件）
+2. **解析** → 章节/段落 + 稳定 ID + 指纹徽章；流程栏显示非阻断解析提示（前言保留 / 章节过少 / 空章 / 长段落拆分）
 3. **分析** → 人物/地点（确定性 ID）+ 事件卡 + 冲突卡 + 人物关系 + 钩子候选
 4. **规划** → 3 集短剧结构 + 场景级目的/冲突/情绪转折/引用覆盖
 5. **生成** → 先做结构/引用/规划一致性校验与错误回灌，再在右栏输出可编辑 YAML + 质量报告

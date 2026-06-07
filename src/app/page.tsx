@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -13,6 +13,7 @@ import {
   Play,
   RefreshCw,
   SearchCheck,
+  Upload,
   Wand2,
 } from "lucide-react";
 import { DEMO_SOURCE_FINGERPRINT } from "../llm/demo-fingerprint";
@@ -41,6 +42,12 @@ interface SourceParagraph {
   hash: string;
 }
 
+interface ParseWarning {
+  code: string;
+  message: string;
+  path?: string;
+}
+
 interface ParseResult {
   chapters: SourceChapter[];
   source_paragraphs: SourceParagraph[];
@@ -56,6 +63,7 @@ interface ParseResult {
     empty_input: boolean;
     detected_chapter_count: number;
   };
+  warnings: ParseWarning[];
 }
 
 interface KeyEventCard {
@@ -241,6 +249,8 @@ export default function WorkbenchPage() {
     setTraceParaIds([]);
   }
 
+  const txtInputRef = useRef<HTMLInputElement | null>(null);
+
   async function loadDemo() {
     setBusy("demo");
     try {
@@ -256,6 +266,28 @@ export default function WorkbenchPage() {
     }
   }
 
+  async function loadTxtFile(file: File | null) {
+    if (!file) return;
+    const isTxt = file.type === "text/plain" || file.name.toLowerCase().endsWith(".txt");
+    if (!isTxt) {
+      setMessage({ type: "error", text: "请上传 .txt 文本文件。" });
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      setMessage({ type: "error", text: "TXT 文件超过 1MB，请先截取 3 章左右文本再上传。" });
+      return;
+    }
+    try {
+      const text = (await file.text()).replace(/^﻿/, "");
+      setNovelText(text);
+      setParseResult(null);
+      resetDownstream();
+      setMessage({ type: "info", text: `已载入 TXT：${file.name}` });
+    } catch (error) {
+      setMessage({ type: "error", text: error instanceof Error ? error.message : "TXT 读取失败。" });
+    }
+  }
+
   async function runParse() {
     setBusy("parse");
     try {
@@ -268,7 +300,7 @@ export default function WorkbenchPage() {
       setMessage({
         type: data.checks.meets_minimum_chapters ? "info" : "error",
         text: data.checks.meets_minimum_chapters
-          ? `解析完成：${data.stats.chapter_count} 章 / ${data.stats.paragraph_count} 段`
+          ? `解析完成：${data.stats.chapter_count} 章 / ${data.stats.paragraph_count} 段${data.warnings.length > 0 ? `，${data.warnings.length} 条提示` : ""}`
           : data.checks.empty_input
             ? "请先粘贴或载入小说文本"
             : `仅识别到 ${data.checks.detected_chapter_count} 个章节，本工具需至少 3 章（用"第X章"等标记分章）`,
@@ -417,6 +449,20 @@ export default function WorkbenchPage() {
                 {spinner("demo", RefreshCw)}
                 载入 Demo
               </button>
+              <input
+                ref={txtInputRef}
+                type="file"
+                accept=".txt,text/plain"
+                hidden
+                onChange={(event) => {
+                  void loadTxtFile(event.target.files?.[0] ?? null);
+                  event.currentTarget.value = "";
+                }}
+              />
+              <button className="btn" disabled={isBusy} onClick={() => txtInputRef.current?.click()}>
+                <Upload size={15} />
+                上传 TXT
+              </button>
               <button className="btn primary" disabled={isBusy || novelText.trim().length === 0} onClick={runParse}>
                 {spinner("parse", SearchCheck)}
                 解析
@@ -464,6 +510,15 @@ export default function WorkbenchPage() {
                     <div className="metric"><strong>{parseResult.stats.paragraph_count}</strong><span>段</span></div>
                     <div className="metric"><strong>{parseResult.stats.character_count}</strong><span>字</span></div>
                   </div>
+                  {parseResult.warnings.length > 0 ? (
+                    <div className="findings" style={{ marginTop: 10 }}>
+                      {parseResult.warnings.map((warning, index) => (
+                        <div className="finding warning" key={`${warning.code}-${warning.path ?? index}`}>
+                          <strong>{warning.code}</strong> <span>{warning.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="list" style={{ marginTop: 10 }}>
                     {parseResult.source_paragraphs.map((p) => (
                       <div

@@ -42,6 +42,11 @@ export interface CallJsonOptions<T> {
   schema: ZodType<T>;
   label: string;
   maxRetries?: number;
+  onAttemptStart?: (attempt: number, maxAttempts: number, messageCount: number) => void;
+  onAttemptComplete?: (attempt: number, elapsedMs: number, outputChars: number) => void;
+  onAttemptRetry?: (attempt: number, elapsedMs: number, reason: string) => void;
+  onAttemptSuccess?: (attempt: number, elapsedMs: number) => void;
+  onAttemptError?: (attempt: number, elapsedMs: number, error: unknown) => void;
 }
 
 /**
@@ -53,19 +58,34 @@ export async function callJson<T>(opts: CallJsonOptions<T>): Promise<T> {
   const messages: ChatMessage[] = [...opts.messages];
   let lastError = "";
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const raw = await opts.complete(messages);
+    const attemptNumber = attempt + 1;
+    const attemptStartedAt = Date.now();
+    opts.onAttemptStart?.(attemptNumber, maxRetries + 1, messages.length);
+    let raw: string;
+    try {
+      raw = await opts.complete(messages);
+      opts.onAttemptComplete?.(attemptNumber, Date.now() - attemptStartedAt, raw.length);
+    } catch (e) {
+      opts.onAttemptError?.(attemptNumber, Date.now() - attemptStartedAt, e);
+      throw e;
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(extractJson(raw));
     } catch (e) {
       lastError = `JSON 解析失败：${e instanceof Error ? e.message : String(e)}`;
+      opts.onAttemptRetry?.(attemptNumber, Date.now() - attemptStartedAt, lastError);
       messages.push({ role: "assistant", content: raw });
       messages.push({ role: "user", content: `${lastError}。请只返回合法 JSON，不要任何解释或 markdown 围栏。` });
       continue;
     }
     const result = opts.schema.safeParse(parsed);
-    if (result.success) return result.data;
+    if (result.success) {
+      opts.onAttemptSuccess?.(attemptNumber, Date.now() - attemptStartedAt);
+      return result.data;
+    }
     lastError = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    opts.onAttemptRetry?.(attemptNumber, Date.now() - attemptStartedAt, lastError);
     messages.push({ role: "assistant", content: raw });
     messages.push({ role: "user", content: `输出不符合 ${opts.label} 结构：${lastError}。请修正并只返回合法 JSON。` });
   }

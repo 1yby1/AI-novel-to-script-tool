@@ -83,4 +83,59 @@ describe("parseNovel", () => {
     const prefaceParas = r.source_paragraphs.filter((p) => p.chapter_id === "ch1");
     expect(prefaceParas[0]!.text).toContain("楔子");
   });
+
+  it("detects padded chapter markers and cleans title punctuation", () => {
+    const r = parseNovel("第01章：归港\n\nA\n\n第002章 - 重逢\n\nB\n\n第三章、抉择\n\nC");
+    expect(r.checks.detected_chapter_count).toBe(3);
+    expect(r.chapters.map((c) => c.title)).toEqual(["归港", "重逢", "抉择"]);
+    expect(r.checks.meets_minimum_chapters).toBe(true);
+  });
+
+  it("detects short numbered TXT headings", () => {
+    const r = parseNovel("1、归港\n\nA\n\n二、重逢\n\nB\n\n3. 抉择\n\nC");
+    expect(r.checks.detected_chapter_count).toBe(3);
+    expect(r.chapters.map((c) => c.title)).toEqual(["归港", "重逢", "抉择"]);
+  });
+
+  it("does not mistake numbered prose for chapter headings", () => {
+    const text = [
+      "第一章",
+      "",
+      "1、这不是章节标题，而是一段很长的叙述，林深继续向前走，他没有停下。",
+      "",
+      "第二章",
+      "",
+      "B",
+      "",
+      "第三章",
+      "",
+      "C",
+    ].join("\n");
+    const r = parseNovel(text);
+    expect(r.checks.detected_chapter_count).toBe(3);
+    expect(r.chapters).toHaveLength(3);
+    expect(r.source_paragraphs.some((p) => p.text.startsWith("1、这不是章节标题"))).toBe(true);
+  });
+
+  it("splits very long paragraphs and reports a parser warning", () => {
+    const long = Array.from({ length: 260 }, (_, i) => `句子${i}。`).join("");
+    const r = parseNovel(`第一章\n\n${long}\n\n第二章\n\nB\n\n第三章\n\nC`);
+    const ch1 = r.source_paragraphs.filter((p) => p.chapter_id === "ch1");
+    expect(ch1.length).toBeGreaterThan(1);
+    expect(ch1.every((p) => p.text.length <= 760)).toBe(true);
+    expect(r.warnings.some((w) => w.code === "LONG_PARAGRAPH_SPLIT")).toBe(true);
+  });
+
+  it("reports non-fatal warnings for fallback and chapter-count issues", () => {
+    const r = parseNovel("没有章节标记的正文。\n\n第二段。");
+    expect(r.chapters).toHaveLength(1);
+    expect(r.checks.meets_minimum_chapters).toBe(false);
+    expect(r.warnings.map((w) => w.code)).toContain("FALLBACK_SINGLE_CHAPTER");
+    expect(r.warnings.map((w) => w.code)).toContain("FEW_CHAPTERS");
+  });
+
+  it("returns an empty warnings array for a clean multi-chapter parse", () => {
+    const r = parseNovel(SAMPLE);
+    expect(r.warnings).toEqual([]);
+  });
 });

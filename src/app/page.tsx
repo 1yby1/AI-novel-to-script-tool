@@ -291,6 +291,8 @@ export default function WorkbenchPage() {
       setPlan(null);
       setYamlText("");
       setValidation(null);
+      setScriptJson(null);
+      setTraceParaIds([]);
       setMessage({ type: "info", text: `分析完成：${data.characters.length} 人物 / ${data.locations.length} 地点` });
     } catch (e) {
       setMessage({ type: "error", text: e instanceof Error ? e.message : String(e) });
@@ -310,6 +312,8 @@ export default function WorkbenchPage() {
       setPlan(data);
       setYamlText("");
       setValidation(null);
+      setScriptJson(null);
+      setTraceParaIds([]);
       setMessage({ type: "info", text: `规划完成：${data.episodes.length} 集 / ${data.scene_plan.length} 场` });
     } catch (e) {
       setMessage({ type: "error", text: e instanceof Error ? e.message : String(e) });

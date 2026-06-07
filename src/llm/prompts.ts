@@ -26,11 +26,11 @@ export function buildAnalyzeMessages(source: SourceContext): ChatMessage[] {
   return [
     {
       role: "system",
-      content: `你是中文小说改编分析助手。基于带 ID 的原文段落，抽取人物、地点、章节摘要、关键事件、主要冲突。${JSON_ONLY} 人物/地点不要编造 ID（系统会分配）。source_refs 只能引用下方列出的段落 ID。`,
+      content: `你是中文小说改编分析助手。基于带 ID 的原文段落，抽取：人物、地点、章节摘要、关键事件卡(key_events)、冲突卡(conflicts)、人物关系(relationship_edges)、开场钩子候选(hook_candidates)、改编提醒(adaptation_warnings)。${JSON_ONLY} 人物/地点用名字、不要编造 ID（系统会分配）。所有 source_refs（含事件/冲突/关系/钩子卡）只能引用下方列出的段落 ID。事件卡的 dramatic_function 必须取自：hook|setup|conflict|reversal|climax|resolution。`,
     },
     {
       role: "user",
-      content: `原文段落（格式「ID: 正文」）：\n${paragraphCatalog(source)}\n\n输出 JSON：{"characters":[{"name":"","aliases":[],"role":"protagonist|antagonist|supporting|minor","motivation":"","relationship_notes":"","source_refs":[]}],"locations":[{"name":"","description":"","source_refs":[]}],"chapter_summaries":[{"chapter_id":"","summary":""}],"key_events":[],"conflicts":[]}`,
+      content: `原文段落（格式「ID: 正文」）：\n${paragraphCatalog(source)}\n\n输出 JSON：{"characters":[{"name":"","aliases":[],"role":"protagonist|antagonist|supporting|minor","motivation":"","relationship_notes":"","source_refs":[]}],"locations":[{"name":"","description":"","source_refs":[]}],"chapter_summaries":[{"chapter_id":"","summary":""}],"key_events":[{"id":"evt_1","summary":"","involved_character_names":[],"location_name":null,"dramatic_function":"hook","source_refs":[]}],"conflicts":[{"id":"conf_1","parties":[],"surface_conflict":"","underlying_tension":"","stakes":"","escalation":"","source_refs":[]}],"relationship_edges":[{"from_character_name":"","to_character_name":"","relation":"","tension":"","source_refs":[]}],"hook_candidates":[{"id":"hook_1","description":"","why_it_hooks":"","suggested_episode_no":1,"source_refs":[]}],"adaptation_warnings":[]}`,
     },
   ];
 }

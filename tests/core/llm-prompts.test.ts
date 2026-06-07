@@ -35,12 +35,15 @@ const plan: PlanScenesResult = {
 };
 
 describe("prompts", () => {
-  it("analyze injects the paragraph text and forbids inventing IDs", () => {
+  it("analyze injects the paragraph text and asks for v2 structured cards", () => {
     const msgs = buildAnalyzeMessages(source);
     const joined = msgs.map((m) => m.content).join("\n");
     expect(joined).toContain("ch1_p1_aaaa1111");
     expect(joined).toContain("林深回到旧码头");
     expect(msgs[0]!.role).toBe("system");
+    expect(joined).toContain("dramatic_function");
+    expect(joined).toContain("hook_candidates");
+    expect(joined).toContain("relationship_edges");
   });
   it("plan injects the event catalog, hook candidates, and scene fields", () => {
     const joined = buildPlanMessages(source, analysis).map((m) => m.content).join("\n");

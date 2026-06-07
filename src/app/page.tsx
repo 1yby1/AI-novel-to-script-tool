@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -174,6 +174,79 @@ async function getJson<T>(url: string): Promise<T> {
   return data as T;
 }
 
+type StreamEvent = Record<string, unknown> & { type?: string };
+
+/**
+ * POST and read a newline-delimited JSON stream. Progress lines go to `onProgress`;
+ * the final `{type:"result"}` object is returned and an `{type:"error"}` line throws.
+ * Pre-stream failures (non-2xx) are surfaced as a normal JSON error, like postJson.
+ */
+async function postStream(
+  url: string,
+  body: unknown,
+  onProgress: (event: StreamEvent) => void,
+): Promise<Record<string, unknown>> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok || !response.body) {
+    const data = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+    throw new Error(data?.error?.message ?? `请求失败：${response.status}`);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: Record<string, unknown> | null = null;
+  let streamError: string | null = null;
+
+  const handleLine = (line: string): void => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    let event: StreamEvent;
+    try {
+      event = JSON.parse(trimmed) as StreamEvent;
+    } catch {
+      return; // ignore malformed progress lines — result/error is the source of truth
+    }
+    if (event.type === "result") result = event;
+    else if (event.type === "error") streamError = typeof event.message === "string" ? event.message : "生成失败";
+    else onProgress(event);
+  };
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (value) buffer += decoder.decode(value, { stream: true });
+    let newlineIndex = buffer.indexOf("\n");
+    while (newlineIndex >= 0) {
+      handleLine(buffer.slice(0, newlineIndex));
+      buffer = buffer.slice(newlineIndex + 1);
+      newlineIndex = buffer.indexOf("\n");
+    }
+    if (done) break;
+  }
+  handleLine(buffer);
+
+  if (streamError) throw new Error(streamError);
+  if (!result) throw new Error("生成未返回结果（连接可能已中断，请重试）。");
+  return result;
+}
+
+function progressPhaseLabel(phase: string | undefined): string {
+  switch (phase) {
+    case "assembling":
+      return "各集已生成，正在装配整剧";
+    case "validating":
+      return "正在校验整剧结构与溯源";
+    case "finalizing":
+      return "即将完成";
+    default:
+      return "正在并行生成各集（每集独立校验）";
+  }
+}
+
 function downloadFile(name: string, content: string): void {
   const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -232,6 +305,21 @@ export default function WorkbenchPage() {
     type: "info",
     text: "离线 Demo 模式（无需 API Key）",
   });
+  const [genProgress, setGenProgress] = useState<{ phase: string; done: number[]; retries: Record<number, number> } | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  // Live elapsed-seconds counter while a (possibly slow) LLM call is in flight, so the
+  // UI never looks frozen. Re-keys on `busy` → resets when each operation starts/ends.
+  useEffect(() => {
+    if (!busy) {
+      setElapsed(0);
+      return;
+    }
+    const startedAt = Date.now();
+    setElapsed(0);
+    const id = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 500);
+    return () => window.clearInterval(id);
+  }, [busy]);
 
   const canUseFixture = parseResult?.source_fingerprint === DEMO_SOURCE_FINGERPRINT;
   const quality = validation?.quality_report ?? null;
@@ -295,6 +383,12 @@ export default function WorkbenchPage() {
     }
     try {
       const text = (await file.text()).replace(/^\uFEFF/, "");
+      // file.text() always decodes as UTF-8; a GBK/GB18030 novel (very common for Chinese text)
+      // decodes to U+FFFD replacement chars. Reject rather than feed mojibake into the pipeline.
+      if (text.includes("\uFFFD")) {
+        setMessage({ type: "error", text: "TXT \u4F3C\u4E4E\u4E0D\u662F UTF-8 \u7F16\u7801\uFF08\u51FA\u73B0\u4E71\u7801\uFF09\u3002\u8BF7\u7528\u8BB0\u4E8B\u672C\u300C\u53E6\u5B58\u4E3A\u300D\u65F6\u628A\u7F16\u7801\u9009\u4E3A UTF-8 \u540E\u91CD\u8BD5\u3002" });
+        return;
+      }
       setNovelText(text);
       setParseResult(null);
       resetDownstream();
@@ -377,12 +471,26 @@ export default function WorkbenchPage() {
   async function runGenerate() {
     if (!parseResult) return;
     setBusy("generate");
+    setGenProgress({ phase: "generating", done: [], retries: {} });
     try {
-      const data = await postJson<GenerateResult>("/api/generate-script", {
-        text: novelText,
-        analysis,
-        plan,
-      });
+      const data = (await postStream("/api/generate-script", { text: novelText, analysis, plan }, (event) => {
+        if (event.type !== "progress") return;
+        const phase = typeof event.phase === "string" ? event.phase : "generating";
+        setGenProgress((prev) => {
+          const current = prev ?? { phase: "generating", done: [], retries: {} };
+          if (phase === "episode_done") {
+            const n = Number(event.episode_no);
+            return Number.isFinite(n) && !current.done.includes(n) ? { ...current, done: [...current.done, n] } : current;
+          }
+          if (phase === "episode_retry") {
+            const n = Number(event.episode_no);
+            if (!Number.isFinite(n)) return current;
+            const attempt = Number(event.attempt) || (current.retries[n] ?? 0) + 1;
+            return { ...current, retries: { ...current.retries, [n]: attempt } };
+          }
+          return { ...current, phase };
+        });
+      })) as unknown as GenerateResult;
       setYamlText(data.script_yaml);
       setValidation(data.validation_result);
       setScriptJson(data.script_json);
@@ -396,6 +504,7 @@ export default function WorkbenchPage() {
       setMessage({ type: "error", text: e instanceof Error ? e.message : String(e) });
     } finally {
       setBusy(null);
+      setGenProgress(null);
     }
   }
 
@@ -566,7 +675,7 @@ export default function WorkbenchPage() {
           <h3>原文段落</h3>
           <button className="btn" disabled={isBusy || !canRun} onClick={runAnalyze}>
             {spinner("analyze", ListChecks)}
-            进入分析
+            运行分析
           </button>
         </div>
         <div className="stage-list paragraph-list">
@@ -601,7 +710,7 @@ export default function WorkbenchPage() {
           <p>分析会抽取人物、地点、事件卡、冲突卡和钩子候选。</p>
           <button className="btn primary" disabled={isBusy || !canRun} onClick={runAnalyze}>
             {spinner("analyze", ListChecks)}
-            开始分析
+            运行分析
           </button>
         </div>
       );
@@ -619,7 +728,7 @@ export default function WorkbenchPage() {
           <h3>人物与地点</h3>
           <button className="btn" disabled={isBusy || !analysis} onClick={runPlan}>
             {spinner("plan", GitBranch)}
-            进入规划
+            生成规划
           </button>
         </div>
         <div className="entity-grid">
@@ -808,7 +917,7 @@ export default function WorkbenchPage() {
           ))}
         </div>
         <div className="inspector-block">
-          <h3>Beat 列表</h3>
+          <h3>Beat 列表{beatRows.length > 18 ? `（前 18 / 共 ${beatRows.length}）` : ""}</h3>
           {beatRows.length > 0 ? (
             <div className="compact-list">
               {beatRows.slice(0, 18).map((row) => {
@@ -1007,13 +1116,43 @@ export default function WorkbenchPage() {
             <span className={`stage-state ${activeStageItem.state}`}>{activeStageItem.meta}</span>
           </div>
           {message ? <div className={`message ${message.type}`} role={message.type === "error" ? "alert" : "status"}>{message.text}</div> : null}
+          {isBusy && (busy === "analyze" || busy === "plan" || busy === "generate") ? (
+            <div className="live-progress" role="status">
+              <div className="live-progress-head">
+                <Loader2 className="spin" size={15} />
+                <span>
+                  {busy === "analyze"
+                    ? "正在调用模型分析人物 / 事件 / 冲突"
+                    : busy === "plan"
+                      ? "正在调用模型规划分集与分场"
+                      : progressPhaseLabel(genProgress?.phase)}
+                  <span className="live-elapsed"> · 已用 {elapsed}s</span>
+                </span>
+              </div>
+              {busy === "generate" && plan && plan.episodes.length > 0 ? (
+                <div className="episode-progress">
+                  {plan.episodes.map((episode) => {
+                    const done = genProgress?.done.includes(episode.episode_no) ?? false;
+                    const retrying = !done && (genProgress?.retries[episode.episode_no] ?? 0) >= 2;
+                    const state = done ? "done" : retrying ? "retry" : "active";
+                    return (
+                      <span className={`ep-pill ${state}`} key={episode.episode_no}>
+                        {done ? <CheckCircle2 size={13} /> : <Loader2 className="spin" size={13} />}
+                        第{episode.episode_no}集{retrying ? "（重试中）" : ""}
+                      </span>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {parseResult?.checks.meets_minimum_chapters && parseResult.mode === "fixture" && !canUseFixture ? (
             <p className="hint">
               离线 Demo 模式：仅内置 Demo 可生成。自定义文本请配置 <code>OPENAI_API_KEY</code> 启用 live 模式。
             </p>
           ) : null}
-          {parseResult?.checks.meets_minimum_chapters && parseResult.mode === "live" && !canUseFixture ? (
-            <p className="hint">live 模式：将调用真实 LLM 生成（分析 → 规划 → 生成，可能需要数十秒）。</p>
+          {!isBusy && parseResult?.checks.meets_minimum_chapters && parseResult.mode === "live" && !canUseFixture ? (
+            <p className="hint">live 模式：调用真实 LLM（分析 / 规划各约数十秒，整剧按集并行生成约 1–2 分钟）。</p>
           ) : null}
           <div className="stage-body">{renderStage()}</div>
         </section>

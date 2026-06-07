@@ -105,6 +105,17 @@ export interface GenerateScriptResult {
   script_yaml: string;
 }
 
+/** Coarse progress events emitted while generating a script (per-episode parallel path).
+ *  Consumed by the API route to stream live feedback to the client; safe to ignore. */
+export type GenerateProgress =
+  | { phase: "generating"; total_episodes: number }
+  | { phase: "episode_done"; episode_no: number }
+  | { phase: "episode_retry"; episode_no: number; attempt: number }
+  | { phase: "assembling" }
+  | { phase: "validating" };
+
+export type GenerateProgressReporter = (event: GenerateProgress) => void;
+
 /** Source content + fingerprint shared by every stage. Optional fields are unused by the
  *  fixture provider (gated by fingerprint) but required by the live provider. */
 export interface SourceContext {
@@ -127,5 +138,5 @@ export interface GenerateInput extends SourceContext {
 export interface ScriptProvider {
   analyze(input: AnalyzeInput): Promise<AnalyzeResult>;
   planScenes(input: PlanInput): Promise<PlanScenesResult>;
-  generateScript(input: GenerateInput): Promise<GenerateScriptResult>;
+  generateScript(input: GenerateInput, onProgress?: GenerateProgressReporter): Promise<GenerateScriptResult>;
 }

@@ -12,10 +12,13 @@ import { buildAnalyzeMessages, buildPlanMessages, buildGenerateMessages, buildEp
 import { validateScriptObject } from "../core/validate/full";
 import { checkGeneratedScriptAgainstPlan, formatGenerationFeedback, retryableWarnings } from "./generation-feedback";
 import { checkReferential } from "../core/validate/referential";
+import { checkEpisodeConstraints } from "../core/validate/constraints";
+import type { ValidationItem } from "../core/validate/schema-validate";
 import type {
   AnalyzeInput,
   AnalyzeResult,
   GenerateInput,
+  GenerateProgressReporter,
   GenerateScriptResult,
   PlanInput,
   PlanScenesResult,
@@ -272,7 +275,7 @@ export class LiveLLMProvider implements ScriptProvider {
     throw new Error(`live 分场规划在 ${this.maxRetries + 1} 次尝试后仍不合法：${lastError}`);
   }
 
-  async generateScript(input: GenerateInput): Promise<GenerateScriptResult> {
+  async generateScript(input: GenerateInput, onProgress?: GenerateProgressReporter): Promise<GenerateScriptResult> {
     if (!input.analysis || !input.plan) throw new Error("live generateScript 需要 analyze 与 plan 结果。");
     const analysis = input.analysis;
     const plan = input.plan;
@@ -281,9 +284,9 @@ export class LiveLLMProvider implements ScriptProvider {
     // per-episode generation can't be validated.
     if (plan.episodes.length > 0) {
       try {
-        return await this.generateByEpisode(input, analysis, plan);
+        return await this.generateByEpisode(input, analysis, plan, onProgress);
       } catch (e) {
-        this.logAttempt("generate-script", "error", 0, { reason: summarizeAttemptReason(e) });
+        this.logAttempt("generate-script", "error", 0, { reason: `按集生成失败，回退整篇生成：${summarizeAttemptReason(e)}` });
       }
     }
     const messages: ChatMessage[] = [...buildGenerateMessages(input, analysis, plan)];
@@ -367,24 +370,34 @@ export class LiveLLMProvider implements ScriptProvider {
   }
 
   /** Generate every planned episode in parallel, then assemble + validate the whole script. */
-  private async generateByEpisode(input: GenerateInput, analysis: AnalyzeResult, plan: PlanScenesResult): Promise<GenerateScriptResult> {
+  private async generateByEpisode(input: GenerateInput, analysis: AnalyzeResult, plan: PlanScenesResult, onProgress?: GenerateProgressReporter): Promise<GenerateScriptResult> {
     const scenesByEpisode = new Map<number, PlanScenesResult["scene_plan"]>();
     for (const scene of plan.scene_plan) {
       const arr = scenesByEpisode.get(scene.episode_no) ?? [];
       arr.push(scene);
       scenesByEpisode.set(scene.episode_no, arr);
     }
-    const episodes = await Promise.all(
-      plan.episodes.map((ep) => this.generateOneEpisode(input, analysis, plan, ep, scenesByEpisode.get(ep.episode_no) ?? [])),
+    onProgress?.({ phase: "generating", total_episodes: plan.episodes.length });
+    // The opening-hook constraint applies only to the first episode (lowest episode_no).
+    const firstEpisodeNo = Math.min(...plan.episodes.map((ep) => ep.episode_no));
+    const episodes = await mapWithConcurrency(plan.episodes, MAX_EPISODE_CONCURRENCY, (ep) =>
+      this.generateOneEpisode(input, analysis, plan, ep, scenesByEpisode.get(ep.episode_no) ?? [], ep.episode_no === firstEpisodeNo, (attempt) =>
+        onProgress?.({ phase: "episode_retry", episode_no: ep.episode_no, attempt }),
+      ).then((episode) => {
+        onProgress?.({ phase: "episode_done", episode_no: ep.episode_no });
+        return episode;
+      }),
     );
     episodes.sort((a, b) => a.episode_no - b.episode_no);
 
+    onProgress?.({ phase: "assembling" });
     const partial = { episodes, adaptation_notes: deriveAdaptationNotes(plan, analysis) };
     const assembled = assembleScript(input, analysis, partial);
     const canonical = {
       paragraphIds: (input.source_paragraphs ?? []).map((paragraph) => paragraph.id),
       fingerprint: input.source_fingerprint,
     };
+    onProgress?.({ phase: "validating" });
     const validation = validateScriptObject(assembled, { mode: "generate", canonical });
     if (!validation.valid || !validation.script) {
       throw new Error(`按集生成装配后整体校验失败：${formatGenerationFeedback(validation.errors)}`);
@@ -399,12 +412,15 @@ export class LiveLLMProvider implements ScriptProvider {
     plan: PlanScenesResult,
     plannedEpisode: PlanScenesResult["episodes"][number],
     plannedScenes: PlanScenesResult["scene_plan"],
+    isFirstEpisode: boolean,
+    onRetry?: (attempt: number) => void,
   ): Promise<Script["episodes"][number]> {
     const messages: ChatMessage[] = [...buildEpisodeMessages(input, analysis, plannedEpisode, plannedScenes)];
     const planSubset = { ...plan, episodes: [plannedEpisode], scene_plan: plannedScenes };
     let lastError = "";
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       const attemptNumber = attempt + 1;
+      if (attempt > 0) onRetry?.(attemptNumber);
       const attemptStartedAt = Date.now();
       const raw = await this.completeAttempt("generate-script", messages, attemptNumber, attemptStartedAt);
       let parsed: unknown;
@@ -425,12 +441,19 @@ export class LiveLLMProvider implements ScriptProvider {
       }
       const episode = result.data;
       const mini = assembleScript(input, analysis, { episodes: [episode], adaptation_notes: [] }) as Script;
-      const findings = [...checkReferential(mini), ...checkGeneratedScriptAgainstPlan(mini, planSubset as PlanScenesResult)];
-      if (findings.length === 0) {
+      // Hard findings (structure / refs / plan adherence) always force a retry and ultimately throw.
+      const hardFindings = [...checkReferential(mini), ...checkGeneratedScriptAgainstPlan(mini, planSubset as PlanScenesResult)];
+      // Soft findings mirror the whole-script quality gate at episode granularity (short-drama
+      // constraints + scene traceability); they force a retry only while attempts remain, then accept.
+      const softFindings = hardFindings.length === 0
+        ? [...checkEpisodeConstraints(episode, mini.adaptation_constraints, { isFirstEpisode }), ...untraceableSceneFindings(episode)]
+        : [];
+      const mustRetry = hardFindings.length > 0 || (softFindings.length > 0 && attempt < this.maxRetries);
+      if (!mustRetry) {
         this.logAttempt("generate-script", "success", attemptNumber, { elapsed_ms: Date.now() - attemptStartedAt });
         return episode;
       }
-      lastError = formatGenerationFeedback(findings);
+      lastError = formatGenerationFeedback(hardFindings.length > 0 ? hardFindings : softFindings);
       this.logAttemptRetry("generate-script", attemptNumber, attemptStartedAt, lastError);
       messages.push(
         { role: "assistant", content: raw },
@@ -492,6 +515,42 @@ function deriveAdaptationNotes(plan: PlanScenesResult, analysis: AnalyzeResult):
     notes.push({ type: "pacing", description: plan.adaptation_strategy });
   }
   return notes;
+}
+
+const MAX_EPISODE_CONCURRENCY = 4;
+
+/** Run `fn` over `items` with at most `limit` in flight; stop pulling new work once one rejects. */
+async function mapWithConcurrency<T, R>(items: readonly T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  let failed = false;
+  const runWorker = async (): Promise<void> => {
+    while (!failed && next < items.length) {
+      const index = next++;
+      try {
+        results[index] = await fn(items[index]!, index);
+      } catch (e) {
+        failed = true;
+        throw e;
+      }
+    }
+  };
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  return results;
+}
+
+/** Scenes with neither scene-level nor any beat-level source_refs (matches the quality report's rule). */
+function untraceableSceneFindings(episode: Script["episodes"][number]): ValidationItem[] {
+  const findings: ValidationItem[] = [];
+  episode.scenes.forEach((scene, sceneIndex) => {
+    const sceneEmpty = scene.source_refs.length === 0;
+    const beatsEmpty = scene.beats.every((beat) => beat.source_refs.length === 0);
+    if (sceneEmpty && beatsEmpty) {
+      findings.push({ path: `scenes[${sceneIndex}]`, code: "WEAK_TRACEABILITY", message: `第 ${episode.episode_no} 集第 ${scene.scene_no} 场缺少 source_refs，建议补充溯源。` });
+    }
+  });
+  return findings;
 }
 
 /** Construct a live provider from env config (call only when hasApiKey()). */

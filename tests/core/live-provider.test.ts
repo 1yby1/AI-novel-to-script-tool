@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { LiveLLMProvider, type LiveProviderAttemptLog } from "../../src/llm/live-provider";
 import type { CompleteFn } from "../../src/llm/json-llm";
-import type { AnalyzeInput, AnalyzeResult, GenerateInput, PlanInput, PlanScenesResult } from "../../src/llm/provider";
+import type { AnalyzeInput, AnalyzeResult, GenerateInput, GenerateProgress, PlanInput, PlanScenesResult } from "../../src/llm/provider";
 
 const source = {
   source_fingerprint: "fp",
@@ -414,5 +414,102 @@ describe("LiveLLMProvider.generateScript (per-episode parallel)", () => {
     const out = await new LiveLLMProvider(c.fn, 2).generateScript({ ...source, analysis, plan: planWith([1]) } as GenerateInput);
     expect(out.script_json.episodes[0]!.title).toBe("第1集成片");
     expect(c.calls()).toBeGreaterThanOrEqual(2);
+  });
+
+  it("retries an episode whose required cliffhanger is empty, then accepts the fixed one", async () => {
+    const noCliffhanger = JSON.stringify({
+      episode_no: 1, title: "无悬念", opening_hook: "他回来了", core_conflict: "真相", cliffhanger: "", estimated_duration_seconds: 120,
+      scenes: [{
+        scene_no: 1, heading: { int_ext: "EXT", location_id: "loc_dock", time_of_day: "NIGHT" },
+        present_character_ids: ["char_lin"], summary: "登岸",
+        beats: [{ beat_no: 1, type: "action", source_refs: ["ch1_p1_aaaa1111"], description: "林深踏上栈桥。" }],
+        source_refs: ["ch1_p1_aaaa1111"],
+      }],
+    });
+    const c = episodeComplete({ 1: [noCliffhanger, episodeJson(1)] });
+    const out = await new LiveLLMProvider(c.fn, 2).generateScript({ ...source, analysis, plan: planWith([1]) } as GenerateInput);
+    // the empty cliffhanger is a retryable CONSTRAINT_WARNING (short_drama requires one), so the
+    // per-episode path must NOT accept the first structurally-valid response.
+    expect(out.script_json.episodes[0]!.cliffhanger).toBe("灯灭");
+    expect(c.calls()).toBeGreaterThanOrEqual(2);
+  });
+
+  it("retries an episode with an untraceable scene even when the plan didn't pin source_refs", async () => {
+    const planNoRefs: PlanScenesResult = {
+      episodes: [plannedEpisode(1)],
+      scene_plan: [{ ...plannedScene(1), source_refs: [] }],
+      coverage: { covered_event_ids: ["evt_return"], omitted_event_ids: [], coverage_ratio: 1 },
+      pacing_notes: [],
+      adaptation_strategy: "保留主线",
+    };
+    const untraceable = JSON.stringify({
+      episode_no: 1, title: "无溯源", opening_hook: "他回来了", core_conflict: "真相", cliffhanger: "灯灭", estimated_duration_seconds: 120,
+      scenes: [{
+        scene_no: 1, heading: { int_ext: "EXT", location_id: "loc_dock", time_of_day: "NIGHT" },
+        present_character_ids: ["char_lin"], summary: "登岸",
+        beats: [{ beat_no: 1, type: "action", source_refs: [], description: "林深踏上栈桥。" }],
+        source_refs: [],
+      }],
+    });
+    const c = episodeComplete({ 1: [untraceable, episodeJson(1)] });
+    const out = await new LiveLLMProvider(c.fn, 2).generateScript({ ...source, analysis, plan: planNoRefs } as GenerateInput);
+    expect(out.script_json.episodes[0]!.scenes[0]!.source_refs).toContain("ch1_p1_aaaa1111");
+    expect(c.calls()).toBeGreaterThanOrEqual(2);
+  });
+
+  it("caps how many episodes are generated concurrently", async () => {
+    let active = 0;
+    let peak = 0;
+    const fn: CompleteFn = async (msgs) => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      const joined = msgs.map((m) => m.content).join("\n");
+      const no = Number(joined.match(/episode_no=(\d+)/)?.[1] ?? 1);
+      return episodeJson(no);
+    };
+    const out = await new LiveLLMProvider(fn, 2).generateScript({ ...source, analysis, plan: planWith([1, 2, 3, 4, 5, 6]) } as GenerateInput);
+    expect(out.script_json.episodes).toHaveLength(6);
+    expect(peak).toBeLessThanOrEqual(4);
+  });
+
+  it("falls back to whole-script generation and labels the fallback in the attempt log", async () => {
+    const events: LiveProviderAttemptLog[] = [];
+    const logger = (event: LiveProviderAttemptLog): void => { events.push(event); };
+    const badEpisode = JSON.stringify({
+      episode_no: 1, title: "坏引用", opening_hook: "钩子", core_conflict: "x", cliffhanger: "y", estimated_duration_seconds: 120,
+      scenes: [{
+        scene_no: 1, heading: { int_ext: "EXT", location_id: "loc_dock", time_of_day: "NIGHT" },
+        present_character_ids: ["char_lin"], summary: "s",
+        beats: [{ beat_no: 1, type: "action", source_refs: ["bad_ref"], description: "x" }],
+        source_refs: ["bad_ref"],
+      }],
+    });
+    const fullScript = JSON.stringify({ episodes: [JSON.parse(episodeJson(1))], adaptation_notes: [] });
+    // Per-episode prompts carry `episode_no=N`; the whole-script prompt does not.
+    const fn: CompleteFn = async (msgs) => (/episode_no=\d+/.test(msgs.map((m) => m.content).join("\n")) ? badEpisode : fullScript);
+    const out = await new LiveLLMProvider(fn, 1, logger).generateScript({ ...source, analysis, plan: planWith([1]) } as GenerateInput);
+    expect(out.script_json.episodes[0]!.title).toBe("第1集成片");
+    expect(events.some((e) => e.stage === "generate-script" && e.event === "error" && (e.reason ?? "").includes("回退"))).toBe(true);
+  });
+
+  it("reports per-episode progress to onProgress (generating → episode_done×N → assembling → validating)", async () => {
+    const c = episodeComplete({ 1: episodeJson(1), 2: episodeJson(2) });
+    const events: GenerateProgress[] = [];
+    await new LiveLLMProvider(c.fn, 2).generateScript(
+      { ...source, analysis, plan: planWith([1, 2]) } as GenerateInput,
+      (event) => events.push(event),
+    );
+    const phases = events.map((e) => e.phase);
+    expect(phases[0]).toBe("generating");
+    const doneNos = events
+      .filter((e): e is Extract<GenerateProgress, { phase: "episode_done" }> => e.phase === "episode_done")
+      .map((e) => e.episode_no)
+      .sort((a, b) => a - b);
+    expect(doneNos).toEqual([1, 2]);
+    // assembling + validating happen only after every episode resolves.
+    expect(phases.indexOf("assembling")).toBeGreaterThan(phases.lastIndexOf("episode_done"));
+    expect(phases).toContain("validating");
   });
 });

@@ -493,6 +493,66 @@ button:disabled {
   color: var(--bad);
 }
 
+.live-progress {
+  background: var(--accent-soft);
+  border: 1px solid #d9d6ff;
+  border-radius: 8px;
+  color: #312e81;
+  display: grid;
+  flex: 0 0 auto;
+  gap: 8px;
+  margin: 12px 14px 0;
+  padding: 10px 12px;
+}
+
+.live-progress-head {
+  align-items: center;
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+}
+
+.live-elapsed {
+  color: #4f46e5;
+  font-variant-numeric: tabular-nums;
+}
+
+.episode-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ep-pill {
+  align-items: center;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 12px;
+  gap: 5px;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+
+.ep-pill.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ep-pill.done {
+  background: var(--good-soft);
+  border-color: #b9ead8;
+  color: var(--good);
+}
+
+.ep-pill.retry {
+  background: var(--warn-soft);
+  border-color: #f3d782;
+  color: var(--warn);
+}
+
 .hint,
 .muted {
   color: var(--muted);

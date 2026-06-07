@@ -1,4 +1,4 @@
-import { ScriptSchema } from "../core/schema/script-schema";
+import { ScriptSchema, EpisodeSchema, type Script } from "../core/schema/script-schema";
 import { getProfileConstraints } from "../core/schema/profiles";
 import { normalizeEntities, type RawEntity } from "../core/entities/normalize-entities";
 import { canonicalizeName } from "../core/entities/entity-id";
@@ -8,9 +8,10 @@ import { makeComplete } from "./client";
 import { callJson, extractJson, type ChatMessage, type CompleteFn } from "./json-llm";
 import { RawAnalyzeSchema, PlanSchema } from "./output-schemas";
 import { findPlanConsistencyErrors, normalizePlanCoverage } from "./plan-consistency";
-import { buildAnalyzeMessages, buildPlanMessages, buildGenerateMessages } from "./prompts";
+import { buildAnalyzeMessages, buildPlanMessages, buildGenerateMessages, buildEpisodeMessages } from "./prompts";
 import { validateScriptObject } from "../core/validate/full";
 import { checkGeneratedScriptAgainstPlan, formatGenerationFeedback, retryableWarnings } from "./generation-feedback";
+import { checkReferential } from "../core/validate/referential";
 import type {
   AnalyzeInput,
   AnalyzeResult,
@@ -275,6 +276,16 @@ export class LiveLLMProvider implements ScriptProvider {
     if (!input.analysis || !input.plan) throw new Error("live generateScript 需要 analyze 与 plan 结果。");
     const analysis = input.analysis;
     const plan = input.plan;
+    // Fast path: generate episodes in PARALLEL when the plan defines them (the production case),
+    // so wall-clock ≈ slowest single episode. Falls back to whole-script generation below if
+    // per-episode generation can't be validated.
+    if (plan.episodes.length > 0) {
+      try {
+        return await this.generateByEpisode(input, analysis, plan);
+      } catch (e) {
+        this.logAttempt("generate-script", "error", 0, { reason: summarizeAttemptReason(e) });
+      }
+    }
     const messages: ChatMessage[] = [...buildGenerateMessages(input, analysis, plan)];
     let lastError = "";
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
@@ -354,6 +365,80 @@ export class LiveLLMProvider implements ScriptProvider {
     }
     throw new Error(`live 生成在 ${this.maxRetries + 1} 次尝试后仍未产出合法剧本：${lastError}`);
   }
+
+  /** Generate every planned episode in parallel, then assemble + validate the whole script. */
+  private async generateByEpisode(input: GenerateInput, analysis: AnalyzeResult, plan: PlanScenesResult): Promise<GenerateScriptResult> {
+    const scenesByEpisode = new Map<number, PlanScenesResult["scene_plan"]>();
+    for (const scene of plan.scene_plan) {
+      const arr = scenesByEpisode.get(scene.episode_no) ?? [];
+      arr.push(scene);
+      scenesByEpisode.set(scene.episode_no, arr);
+    }
+    const episodes = await Promise.all(
+      plan.episodes.map((ep) => this.generateOneEpisode(input, analysis, plan, ep, scenesByEpisode.get(ep.episode_no) ?? [])),
+    );
+    episodes.sort((a, b) => a.episode_no - b.episode_no);
+
+    const partial = { episodes, adaptation_notes: deriveAdaptationNotes(plan, analysis) };
+    const assembled = assembleScript(input, analysis, partial);
+    const canonical = {
+      paragraphIds: (input.source_paragraphs ?? []).map((paragraph) => paragraph.id),
+      fingerprint: input.source_fingerprint,
+    };
+    const validation = validateScriptObject(assembled, { mode: "generate", canonical });
+    if (!validation.valid || !validation.script) {
+      throw new Error(`按集生成装配后整体校验失败：${formatGenerationFeedback(validation.errors)}`);
+    }
+    return { script_json: validation.script, script_yaml: scriptToYaml(validation.script) };
+  }
+
+  /** Generate one episode from its plan slice, validating structure + refs + plan adherence, with retry. */
+  private async generateOneEpisode(
+    input: GenerateInput,
+    analysis: AnalyzeResult,
+    plan: PlanScenesResult,
+    plannedEpisode: PlanScenesResult["episodes"][number],
+    plannedScenes: PlanScenesResult["scene_plan"],
+  ): Promise<Script["episodes"][number]> {
+    const messages: ChatMessage[] = [...buildEpisodeMessages(input, analysis, plannedEpisode, plannedScenes)];
+    const planSubset = { ...plan, episodes: [plannedEpisode], scene_plan: plannedScenes };
+    let lastError = "";
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      const attemptNumber = attempt + 1;
+      const attemptStartedAt = Date.now();
+      const raw = await this.completeAttempt("generate-script", messages, attemptNumber, attemptStartedAt);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(extractJson(raw));
+      } catch (e) {
+        lastError = `JSON 解析失败：${e instanceof Error ? e.message : String(e)}`;
+        this.logAttemptRetry("generate-script", attemptNumber, attemptStartedAt, lastError);
+        messages.push({ role: "assistant", content: raw }, { role: "user", content: `${lastError}。只返回该集合法 JSON。` });
+        continue;
+      }
+      const result = EpisodeSchema.safeParse(parsed);
+      if (!result.success) {
+        lastError = result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ");
+        this.logAttemptRetry("generate-script", attemptNumber, attemptStartedAt, lastError);
+        messages.push({ role: "assistant", content: raw }, { role: "user", content: `第 ${plannedEpisode.episode_no} 集结构不合法：${lastError}。只返回该集合法 JSON。` });
+        continue;
+      }
+      const episode = result.data;
+      const mini = assembleScript(input, analysis, { episodes: [episode], adaptation_notes: [] }) as Script;
+      const findings = [...checkReferential(mini), ...checkGeneratedScriptAgainstPlan(mini, planSubset as PlanScenesResult)];
+      if (findings.length === 0) {
+        this.logAttempt("generate-script", "success", attemptNumber, { elapsed_ms: Date.now() - attemptStartedAt });
+        return episode;
+      }
+      lastError = formatGenerationFeedback(findings);
+      this.logAttemptRetry("generate-script", attemptNumber, attemptStartedAt, lastError);
+      messages.push(
+        { role: "assistant", content: raw },
+        { role: "user", content: `第 ${plannedEpisode.episode_no} 集未通过校验，请按路径修正后只返回该集合法 JSON：\n${lastError}` },
+      );
+    }
+    throw new Error(`第 ${plannedEpisode.episode_no} 集生成在 ${this.maxRetries + 1} 次尝试后仍不合法：${lastError}`);
+  }
 }
 
 /** Build the full Script from system-owned data + the LLM's creative episodes/notes. */
@@ -393,6 +478,20 @@ function assembleScript(input: GenerateInput, analysis: AnalyzeResult, partial: 
       manual_review_suggestions: [],
     },
   };
+}
+
+/** Derive adaptation_notes deterministically from the plan (omitted events → cut notes; strategy → pacing). */
+function deriveAdaptationNotes(plan: PlanScenesResult, analysis: AnalyzeResult): Array<{ type: string; description: string; source_refs?: string[] }> {
+  const notes: Array<{ type: string; description: string; source_refs?: string[] }> = [];
+  const eventById = new Map(analysis.key_events.map((e) => [e.id, e]));
+  for (const omittedId of plan.coverage.omitted_event_ids) {
+    const ev = eventById.get(omittedId);
+    if (ev) notes.push({ type: "cut", description: `未改编关键事件：${ev.summary}`, source_refs: ev.source_refs });
+  }
+  if (plan.adaptation_strategy.trim().length > 0) {
+    notes.push({ type: "pacing", description: plan.adaptation_strategy });
+  }
+  return notes;
 }
 
 /** Construct a live provider from env config (call only when hasApiKey()). */

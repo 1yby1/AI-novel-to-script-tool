@@ -48,6 +48,24 @@ export function buildPlanMessages(source: SourceContext, analysis: AnalyzeResult
   ];
 }
 
+export function buildEpisodeMessages(
+  source: SourceContext,
+  analysis: AnalyzeResult,
+  plannedEpisode: PlanScenesResult["episodes"][number],
+  plannedScenes: PlanScenesResult["scene_plan"],
+): ChatMessage[] {
+  return [
+    {
+      role: "system",
+      content: `你是短剧编剧，只产出【第 ${plannedEpisode.episode_no} 集】这一集的剧本 JSON（创意部分）。${JSON_ONLY} 严格遵守：source_refs 只能引用合法段落 ID；character_id 与 present_character_ids 只能引用合法人物 ID；location_id 只能引用合法地点 ID；每个生成场景对应一条给定 scene_plan（scene_no/location_id/required_character_ids/source_refs 要一致）；beats 为有序数组，type 为 dialogue|action|transition，只含该类型字段。只输出这一集对象，不要顶层包装、不要其它集。`,
+    },
+    {
+      role: "user",
+      content: `合法段落 ID：${paragraphIdList(source)}\n合法人物 ID：${analysis.characters.map((c) => c.id).join(", ")}\n合法地点 ID：${analysis.locations.map((l) => l.id).join(", ")}\n\n本集规划（episode_no=${plannedEpisode.episode_no}）：${JSON.stringify(plannedEpisode)}\n本集分场规划：${JSON.stringify(plannedScenes)}\n约束：约 ${plannedEpisode.estimated_duration_seconds || 120}s、首集前 15 秒强钩子、结尾留悬念；每个 scene 与关键 beat 尽量带 source_refs。\n\n只输出第 ${plannedEpisode.episode_no} 集 JSON：{"episode_no":${plannedEpisode.episode_no},"title":"","opening_hook":"","core_conflict":"","cliffhanger":"","estimated_duration_seconds":120,"scenes":[{"scene_no":1,"heading":{"int_ext":"INT|EXT|INT_EXT","location_id":"","time_of_day":"DAY|NIGHT|DAWN|DUSK|CONTINUOUS"},"present_character_ids":[],"summary":"","beats":[],"source_refs":[]}]}`,
+    },
+  ];
+}
+
 export function buildGenerateMessages(source: SourceContext, analysis: AnalyzeResult, plan: PlanScenesResult): ChatMessage[] {
   return [
     {

@@ -336,3 +336,83 @@ describe("LiveLLMProvider.planScenes", () => {
     await expect(provider.planScenes({ ...source, analysis: v2Analysis } as PlanInput)).rejects.toThrow(/loc_ghost|不合法/);
   });
 });
+
+describe("LiveLLMProvider.generateScript (per-episode parallel)", () => {
+  const analysis = v2Analysis;
+  const plannedEpisode = (no: number) => ({
+    episode_no: no, title: `计划第${no}集`, opening_hook: "钩子", main_goal: "目标", core_conflict: "冲突",
+    turning_point: "转折", cliffhanger: "悬念", estimated_duration_seconds: 120, event_ids: ["evt_return"], source_refs: ["ch1_p1_aaaa1111"],
+  });
+  const plannedScene = (no: number) => ({
+    episode_no: no, scene_no: 1, location_id: "loc_dock", purpose: "建立", conflict: "试探", emotional_shift: "平静 -> 警觉",
+    required_character_ids: ["char_lin"], event_ids: ["evt_return"], source_refs: ["ch1_p1_aaaa1111"], summary: "s",
+  });
+  const planWith = (nos: number[]): PlanScenesResult => ({
+    episodes: nos.map(plannedEpisode),
+    scene_plan: nos.map(plannedScene),
+    coverage: { covered_event_ids: ["evt_return"], omitted_event_ids: [], coverage_ratio: 1 },
+    pacing_notes: [],
+    adaptation_strategy: "保留主线",
+  });
+  const episodeJson = (no: number): string => JSON.stringify({
+    episode_no: no, title: `第${no}集成片`, opening_hook: "他回来了", core_conflict: "真相", cliffhanger: "灯灭", estimated_duration_seconds: 120,
+    scenes: [{
+      scene_no: 1, heading: { int_ext: "EXT", location_id: "loc_dock", time_of_day: "NIGHT" },
+      present_character_ids: ["char_lin"], summary: "登岸",
+      beats: [{ beat_no: 1, type: "action", source_refs: ["ch1_p1_aaaa1111"], description: "林深踏上栈桥。" }],
+      source_refs: ["ch1_p1_aaaa1111"],
+    }],
+  });
+
+  // Fake LLM that returns the requested episode (keyed by the prompt's `episode_no=N`); arrays drive per-episode retries.
+  function episodeComplete(byNo: Record<number, string | string[]>): { fn: CompleteFn; calls: () => number } {
+    const counters: Record<number, number> = {};
+    let total = 0;
+    const fn: CompleteFn = async (msgs) => {
+      total += 1;
+      const joined = msgs.map((m) => m.content).join("\n");
+      const match = joined.match(/episode_no=(\d+)/);
+      const no = match ? Number(match[1]) : 1;
+      const entry = byNo[no] ?? byNo[1]!;
+      if (Array.isArray(entry)) {
+        const idx = counters[no] ?? 0;
+        counters[no] = idx + 1;
+        return entry[Math.min(idx, entry.length - 1)]!;
+      }
+      return entry;
+    };
+    return { fn, calls: () => total };
+  }
+
+  it("generates a single planned episode and assembles a valid script", async () => {
+    const c = episodeComplete({ 1: episodeJson(1) });
+    const out = await new LiveLLMProvider(c.fn, 2).generateScript({ ...source, analysis, plan: planWith([1]) } as GenerateInput);
+    expect(out.script_json.episodes).toHaveLength(1);
+    expect(out.script_json.episodes[0]!.scenes[0]!.beats[0]!.type).toBe("action");
+    expect(c.calls()).toBe(1); // one call for the one planned episode (fast path, not whole-script)
+  });
+
+  it("generates planned episodes in parallel and assembles them in order", async () => {
+    const c = episodeComplete({ 1: episodeJson(1), 2: episodeJson(2) });
+    const out = await new LiveLLMProvider(c.fn, 2).generateScript({ ...source, analysis, plan: planWith([1, 2]) } as GenerateInput);
+    expect(out.script_json.episodes.map((e) => e.episode_no)).toEqual([1, 2]);
+    expect(out.script_json.episodes[1]!.title).toBe("第2集成片");
+    expect(c.calls()).toBe(2); // exactly one call per episode
+  });
+
+  it("retries a single episode that references an invalid source_ref, then succeeds", async () => {
+    const badEpisode = JSON.stringify({
+      episode_no: 1, title: "坏引用", opening_hook: "他回来了", core_conflict: "真相", cliffhanger: "灯灭", estimated_duration_seconds: 120,
+      scenes: [{
+        scene_no: 1, heading: { int_ext: "EXT", location_id: "loc_dock", time_of_day: "NIGHT" },
+        present_character_ids: ["char_lin"], summary: "登岸",
+        beats: [{ beat_no: 1, type: "action", source_refs: ["bad_ref"], description: "x" }],
+        source_refs: ["bad_ref"],
+      }],
+    });
+    const c = episodeComplete({ 1: [badEpisode, episodeJson(1)] });
+    const out = await new LiveLLMProvider(c.fn, 2).generateScript({ ...source, analysis, plan: planWith([1]) } as GenerateInput);
+    expect(out.script_json.episodes[0]!.title).toBe("第1集成片");
+    expect(c.calls()).toBeGreaterThanOrEqual(2);
+  });
+});
